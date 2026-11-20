@@ -11,6 +11,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from scanners import ROOT, SCANNERS, texts
+from ai_helper import assess, configured
+from contextlib import closing
 
 DB = ROOT / "garden.sqlite3"
 DEMO = ROOT / "git_org/training-main/training-project"
@@ -23,13 +25,13 @@ def connection():
 
 
 def save(kind, value):
-    with connection() as c:
+    with closing(connection()) as c, c:
         c.execute("INSERT OR REPLACE INTO objects VALUES (?,?,?)", (kind, value["id"], json.dumps(value, ensure_ascii=False)))
     return value
 
 
 def all_of(kind):
-    with connection() as c:
+    with closing(connection()) as c, c:
         return [json.loads(r[0]) for r in c.execute("SELECT data FROM objects WHERE kind=?", (kind,))]
 
 
@@ -109,6 +111,37 @@ app = FastAPI(title="Garden · Security Workflows", lifespan=lifespan)
 @app.get("/")
 def index():
     return FileResponse(ROOT / "index.html")
+
+
+@app.get("/assets/{name}")
+def helper_asset(name: str):
+    if name not in {"Helper1.obj", "Helper1.mtl", "helper.js"}:
+        raise HTTPException(404)
+    return FileResponse(ROOT / ("helper.js" if name == "helper.js" else "3d/" + name))
+
+
+class HelperQuestion(BaseModel):
+    run_id: str
+    question: str = Field(min_length=1, max_length=2000)
+
+
+@app.get("/api/assistant")
+def assistant_status():
+    return {"configured": configured()}
+
+
+@app.post("/api/assistant")
+async def assistant_answer(body: HelperQuestion):
+    run = get("runs", body.run_id)
+    if run["status"] == "running":
+        raise HTTPException(409, "Дождитесь завершения проверки")
+    try:
+        result = await assess(run["findings"], body.question)
+    except Exception as exc:
+        raise HTTPException(502, str(exc) if isinstance(exc, ValueError) else "Не удалось связаться с AI-провайдером")
+    run.setdefault("assistant", []).append({"question": body.question, "answer": result})
+    save("runs", run)
+    return result
 
 
 @app.get("/api/projects")
@@ -192,12 +225,8 @@ async def execute(run, flow):
             elif kind == "if":
                 payload["condition"] = len(payload["findings"]) >= int(node["config"].get("minimum", 1))
             elif kind == "ai":
-                payload["ai"] = {
-                    "provider": "local-safe-fallback",
-                    "summary": f"Проверка завершена: обнаружено {len(payload["findings"])} находок. Подключите LLM_PROVIDER и API-ключ для расширенных объяснений.",
-                    "risk_level": next((s for s in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO") if any(f.get("severity") == s for f in payload["findings"])), "INFO"),
-                    "recommendations": [{"finding_id": f["id"], "title": f["class"], "explanation": f["description"], "fix": f["remediation"], "priority": f.get("severity", "INFO")} for f in payload["findings"]]
-                }
+                payload["ai"] = await assess(payload["findings"])
+                run.setdefault("ai", {})[ident] = payload["ai"]
             outputs[ident] = payload
             run["findings"] = list({f["id"]:f for f in run["findings"]+payload["findings"]}.values())
             run["nodes"][ident] = "success"

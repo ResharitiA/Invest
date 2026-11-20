@@ -21,7 +21,7 @@ function renderFindings(){const fs=latest.findings.filter(x=>currentFilter==='al
 function filterFindings(f,b){currentFilter=f;document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active');renderFindings()}
 async function loadHistory(){const rs=await api('/api/runs');$('#historyList').innerHTML=rs.map(r=>'<div class="row"><span>'+new Date(r.started*1000).toLocaleString()+' · '+r.name+'</span><span><span class="badge">'+r.status+'</span> '+(r.findings?.length||0)+' findings</span></div>').join('')||'Нет запусков'}
 async function saveWorkflow(){await api('/api/workflows/'+workflow.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(workflow)});alert('Workflow saved')}
-function addNode(type){workflow.nodes.push({id:crypto.randomUUID(),type,x:80+workflow.nodes.length*30,y:360,config:{}});renderCanvas()}
+function addNode(type){const id=crypto.randomUUID();const tails=workflow.nodes.filter(n=>!workflow.edges.some(e=>e.source===n.id));workflow.nodes.push({id,type,x:80+workflow.nodes.length*30,y:360,config:{}});if(type==='ai')tails.forEach(n=>workflow.edges.push({source:n.id,target:id,branch:''}));renderCanvas()}
 function downloadReport(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({findings:latest.findings},null,2)],{type:'application/json'}));a.download='security-report.json';a.click()}
 load();
-</script></body></html>
+</script><script type="module" src="/assets/helper.js"></script></body></html>
