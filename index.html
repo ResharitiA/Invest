@@ -36,7 +36,7 @@ function setupEditor(){
  #nodeSettings input{width:100px}#editorNotice{min-height:24px;margin:10px 0;color:#bfdbfe}
  #editor select,#editor input{background:#182943;color:#fff;border:1px solid #526783;padding:8px;border-radius:6px}
  `;document.head.append(style);
- $('#editor .muted').textContent='Выход → вход: соединить. Линия или блок: выбрать. Пустое поле: перемещать. Колесо: масштаб.';
+ $('#editor .muted').textContent='Тяните выход к входу. Занятый вход: перенос связи; отпустите на пустом поле — удалить. Esc — отмена. Пустое поле: перемещение. Колесо: масштаб.';
  const toolbar=$('#editor .toolbar');toolbar.replaceChildren();
  const types=document.createElement('select');types.id='nodeType';types.setAttribute('aria-label','Тип ноды');
  for(const [type,name] of Object.entries(nodeNames)){const o=document.createElement('option');o.value=type;o.textContent=name;types.append(o)}
@@ -102,11 +102,46 @@ function validateGraph(){
  function visit(id){if(visiting.has(id))throw Error('Соединение создаёт цикл');if(done.has(id))return;visiting.add(id);for(const target of adj.get(id))visit(target);visiting.delete(id);done.add(id)}
  for(const id of ids)visit(id);
 }
-function connectTo(id){
- if(executing||!connecting)return;
- const edge={source:connecting.id,target:id,branch:connecting.branch};workflow.edges.push(edge);
- try{validateGraph()}catch(e){workflow.edges.pop();editorMessage(e.message);return}
- connecting=null;changed();renderCanvas();renderSettings();
+function startWire(event,node,branch,input){
+ if(executing||event.button!==0)return;
+ event.preventDefault();event.stopPropagation();
+ const original=input?workflow.edges.filter(e=>e.target===node.id).at(-1):null;
+ if(input&&!original)return;
+ const source=original?original.source:node.id,outputBranch=original?original.branch:branch;
+ const sourceNode=workflow.nodes.find(n=>n.id===source);
+ const preview=document.createElementNS('http://www.w3.org/2000/svg','path');
+ preview.setAttribute('class','edge');preview.style.pointerEvents='none';preview.style.stroke='#60a5fa';
+ $('#links').append(preview);
+ const originalIndex=original?workflow.edges.indexOf(original):-1;
+ const oldPath=original?$('#links').querySelector('[data-index="'+originalIndex+'"]'):null;
+ if(oldPath)oldPath.style.visibility='hidden';
+ const draw=e=>{
+  const rect=$('#canvas').getBoundingClientRect();
+  const x=sourceNode.x+170,y=sourceNode.y+(outputBranch==='false'?85:50);
+  const tx=(e.clientX-rect.left-view.x)/view.zoom,ty=(e.clientY-rect.top-view.y)/view.zoom;
+  const bend=Math.max(50,Math.abs(tx-x)/2);
+  preview.setAttribute('d',`M ${x} ${y} C ${x+bend} ${y}, ${tx-bend} ${ty}, ${tx} ${ty}`);
+ };
+ const finish=(e,cancel=false)=>{
+  document.removeEventListener('pointermove',draw);
+  document.removeEventListener('pointerup',up);
+  document.removeEventListener('pointercancel',abort);
+  document.removeEventListener('keydown',escape);
+  const target=cancel?null:document.elementFromPoint(e.clientX,e.clientY)?.closest('.port.in');
+  if(cancel){preview.remove();if(oldPath)oldPath.style.visibility='';return}
+  const before=workflow.edges.slice();
+  if(original)workflow.edges.splice(workflow.edges.indexOf(original),1);
+  if(target)workflow.edges.push({source,target:target.dataset.node,branch:outputBranch});
+  try{validateGraph();if(original||target)changed();else editorMessage('Соединение отменено')}
+  catch(error){workflow.edges=before;editorMessage(error.message)}
+  selection=null;renderCanvas();renderSettings();
+ };
+ const up=e=>finish(e),abort=e=>finish(e,true),escape=e=>{if(e.key==='Escape')finish(e,true)};
+ document.addEventListener('pointermove',draw);
+ document.addEventListener('pointerup',up);
+ document.addEventListener('pointercancel',abort);
+ document.addEventListener('keydown',escape);
+ draw(event);
 }
 function renderCanvas(){
  setupEditor();const c=$('#canvas');c.replaceChildren();if(!workflow)return;
@@ -126,14 +161,14 @@ function renderCanvas(){
   const state=document.createElement('small');state.textContent=({idle:'Ожидание',waiting:'В очереди',running:'Выполняется',success:'Готово',failed:'Ошибка',skipped:'Пропущено'})[el.dataset.state]||el.dataset.state;
   el.append(title,state);
   if(n.type==='if'){const condition=document.createElement('small');condition.textContent='Находок ≥ '+(n.config.minimum??1);el.append(condition)}
-  const port=(text,cls,fn)=>{const b=document.createElement('button');b.className='port '+cls;b.textContent=text;b.disabled=executing;b.onpointerdown=e=>e.stopPropagation();b.onclick=e=>{e.stopPropagation();fn()};el.append(b)};
-  port('Вход','in',()=>connectTo(n.id));
-  for(const branch of n.type==='if'?['true','false']:[''])port(branch||'Выход','out'+(branch==='false'?' false':''),()=>{connecting={id:n.id,branch};editorMessage('Выберите вход целевой ноды ('+(branch||'выход')+')')});
+  const port=(text,cls,branch,input)=>{const b=document.createElement('button');b.className='port '+cls;b.textContent=text;b.dataset.node=n.id;b.disabled=executing;b.onpointerdown=e=>startWire(e,n,branch,input);b.onclick=e=>e.stopPropagation();el.append(b)};
+  port('Вход','in','',true);
+  for(const branch of n.type==='if'?['true','false']:[''])port(branch||'Выход','out'+(branch==='false'?' false':''),branch,false);
   el.onpointerdown=e=>{
    if(e.button!==0||executing)return;e.stopPropagation();selection={kind:'node',id:n.id};renderSettings();c.focus();
    c.querySelectorAll('.node').forEach(v=>v.classList.toggle('selected',v.dataset.id===n.id));
    const start={x:e.clientX,y:e.clientY,nx:n.x,ny:n.y};el.setPointerCapture(e.pointerId);let moved=false;
-   el.onpointermove=ev=>{const dx=(ev.clientX-start.x)/view.zoom,dy=(ev.clientY-start.y)/view.zoom;if(Math.abs(dx)+Math.abs(dy)<2&&!moved)return;moved=true;n.x=Math.max(0,start.nx+dx);n.y=Math.max(0,start.ny+dy);el.style.left=n.x+'px';el.style.top=n.y+'px'};
+   el.onpointermove=ev=>{const dx=(ev.clientX-start.x)/view.zoom,dy=(ev.clientY-start.y)/view.zoom;if(Math.abs(dx)+Math.abs(dy)<2&&!moved)return;moved=true;n.x=start.nx+dx;n.y=start.ny+dy;el.style.left=n.x+'px';el.style.top=n.y+'px'};
    el.onpointerup=el.onpointercancel=()=>{el.onpointermove=null;if(moved){changed();renderCanvas()}};
   };world.append(el);
  });applyView();
@@ -182,7 +217,7 @@ function addNode(type){
  if(executing||!workflow)return;
  if(workflow.nodes.length>=100){editorMessage('Максимум 100 нод');return}
  const id=crypto.randomUUID(),c=$('#canvas');
- workflow.nodes.push({id,type,x:Math.max(0,(c.clientWidth/2-view.x)/view.zoom-85),y:Math.max(0,(c.clientHeight/2-view.y)/view.zoom-55),config:type==='if'?{minimum:1}:{}});
+ workflow.nodes.push({id,type,x:(c.clientWidth/2-view.x)/view.zoom-85,y:(c.clientHeight/2-view.y)/view.zoom-55,config:type==='if'?{minimum:1}:{}});
  selection={kind:'node',id};changed();renderCanvas();renderSettings();
 }
 function downloadReport(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({findings:latest.findings},null,2)],{type:'application/json'}));a.download='security-report.json';a.click()}
