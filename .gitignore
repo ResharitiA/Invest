@@ -1,0 +1,8 @@
+.claude/
+.codex/
+.venv/
+__pycache__/
+*.pyc
+garden.sqlite3
+garden.sqlite3-*
+.env
