@@ -5,7 +5,8 @@ style.textContent = `
 .helper-toggle canvas{width:150px;height:155px;display:block}
 .helper-chat{width:min(390px,calc(100vw - 32px));background:#111b2d;border:1px solid #3b82f6;border-radius:16px;padding:18px;margin-bottom:10px;box-shadow:0 12px 40px #0008}
 .helper-chat[hidden]{display:none}.helper-chat header{display:flex;justify-content:space-between}
-.helper-output{white-space:pre-wrap;max-height:310px;overflow:auto;font-size:14px;line-height:1.5;margin:12px 0}
+.helper-output{white-space:pre-wrap;max-height:310px;overflow:auto;overflow-wrap:anywhere;font-size:14px;line-height:1.5;margin:12px 0}
+.helper-message{background:#182943;border-radius:10px;padding:10px;margin:10px 0}.helper-message strong{display:block;color:#93c5fd;margin-bottom:6px}.helper-question{background:#223b57;margin-left:24px}
 .helper-chat input,.helper-chat select{width:100%;background:#0b1220;color:#e8eef8;border:1px solid #526783;padding:10px;border-radius:7px;margin:6px 0}
 .helper-chat button{cursor:pointer}.helper-chat .btn{margin-top:6px}
 `;
@@ -16,33 +17,64 @@ root.innerHTML = '<div class="helper-chat" hidden><header><b>Скрепка · �
 document.body.append(root);
 const panel=root.querySelector('.helper-chat'), toggle=root.querySelector('.helper-toggle');
 const output=root.querySelector('.helper-output'), select=root.querySelector('select');
-let runs=[];
-const format=a=>a.summary+'\n\nРиск: '+a.risk_level+'\n\n'+a.recommendations.map(r=>'['+r.finding_id+'] '+r.explanation+'\nИсправление: '+r.fix).join('\n\n');
+let runs=[],busy=false,canAsk=false;
+const notice=document.createElement('div');notice.className='muted';notice.setAttribute('role','status');output.after(notice);
+output.setAttribute('role','log');output.setAttribute('aria-label','История переписки');
+function format(a){
+ const findings=runs.find(r=>r.id===select.value)?.findings||[];
+ const label=f=>(f.path||'Файл не указан')+(f.line?':'+f.line:'')+' ('+f.category+')';
+ const readable=value=>{let text=String(value||'');for(const f of findings)text=text.split(f.id).join(label(f));return text};
+ return readable(a.summary)+(a.risk_level?'\n\nРиск: '+a.risk_level:'')+((a.recommendations||[]).length?'\n\n'+a.recommendations.map(r=>{
+  const finding=findings.find(f=>f.id===r.finding_id);
+  return (finding?label(finding):'Находка отсутствует в выбранном запуске')+'\n'+readable(r.explanation)+'\nРекомендация: '+readable(r.fix);
+ }).join('\n\n'):'');
+}
+function appendMessage(label,text,user=false){
+ const message=document.createElement('div');message.className='helper-message'+(user?' helper-question':'');
+ const title=document.createElement('strong');title.textContent=label;
+ const body=document.createElement('div');body.textContent=text;message.append(title,body);output.append(message);
+ output.scrollTop=output.scrollHeight;return message;
+}
 async function refresh(){
-  try{
-    const [status, list]=await Promise.all([api('/api/assistant'),api('/api/runs')]);
-    runs=list.filter(r=>r.status!=='running');
-    select.replaceChildren(...runs.map(r=>{const o=document.createElement('option');o.value=r.id;o.textContent=new Date(r.started*1000).toLocaleString()+' · '+r.name;return o}));
-    output.textContent=!status.configured?'Для подключения задайте LLM_API_KEY и LLM_MODEL в окружении сервера. LLM_BASE_URL — адрес OpenAI-совместимого API.':!runs.length?'Сначала запустите аудит.':'Выберите запуск и задайте вопрос.';
-    root.querySelector('form button').disabled=!status.configured||!runs.length;
-    if(status.configured) showSaved();
-  }catch(e){output.textContent='Не удалось загрузить помощника: '+e.message}
+ if(busy)return;
+ try{
+  const selected=select.value;
+  const [status,list]=await Promise.all([api('/api/assistant'),api('/api/runs')]);
+  runs=list.filter(r=>r.status!=='running');
+  select.replaceChildren(...runs.map(r=>{const o=document.createElement('option');o.value=r.id;o.textContent=new Date(r.started*1000).toLocaleString()+' · '+r.name;return o}));
+  if(runs.some(r=>r.id===selected))select.value=selected;
+  canAsk=Boolean(status.configured&&runs.length);
+  root.querySelector('form button').disabled=!canAsk;
+  notice.textContent=!runs.length?'Сначала запустите аудит.':!status.configured?'AI не настроен. История доступна; для новых вопросов задайте LLM_API_KEY и LLM_MODEL на сервере.':'';
+  showSaved();
+ }catch(e){notice.textContent='Не удалось загрузить помощника: '+e.message}
 }
 function showSaved(){
- const r=runs.find(r=>r.id===select.value);
- const answer=r?.assistant?.at(-1)?.answer || Object.values(r?.ai||{}).at(-1);
- if(answer)output.textContent=format(answer);
- else output.textContent='Задайте вопрос о выбранном запуске.';
+ const r=runs.find(r=>r.id===select.value);output.replaceChildren();
+ for(const answer of Object.values(r?.ai||{}))appendMessage('Скрепка · анализ',format(answer));
+ for(const entry of r?.assistant||[]){
+  appendMessage('Вы',entry.question,true);
+  appendMessage('Скрепка',format(entry.answer));
+ }
+ if(!output.childElementCount)output.textContent=r?'Задайте вопрос о выбранном запуске.':'Нет переписки.';
 }
 toggle.onclick=()=>{panel.hidden=!panel.hidden;toggle.setAttribute('aria-expanded',String(!panel.hidden));if(!panel.hidden)refresh()};
 root.querySelector('header button').onclick=()=>{panel.hidden=true;toggle.setAttribute('aria-expanded','false')};
-select.onchange=showSaved;
+select.onchange=()=>{notice.textContent='';showSaved()};
 root.querySelector('form').onsubmit=async e=>{
- e.preventDefault();const input=root.querySelector('input'),button=root.querySelector('form button');
- button.disabled=true;output.textContent='Разбираю результаты…';
- try{const a=await api('/api/assistant',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:select.value,question:input.value})});output.textContent=format(a)}
- catch(e){output.textContent='Не удалось получить ответ: '+e.message}
- finally{button.disabled=false}
+ e.preventDefault();if(busy||!canAsk)return;
+ const input=root.querySelector('input'),button=root.querySelector('form button');
+ const question=input.value.trim(),run=runs.find(r=>r.id===select.value);
+ if(!question||!run)return;
+ input.value='';
+ busy=true;button.disabled=true;select.disabled=true;input.disabled=true;
+ showSaved();appendMessage('Вы',question,true);notice.textContent='Разбираю результаты…';
+ try{
+  const answer=await api('/api/assistant',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:run.id,question})});
+  (run.assistant??=[]).push({question,answer});
+  showSaved();input.value='';notice.textContent='';
+ }catch(e){notice.textContent='Не удалось получить ответ: '+e.message+'. Отправленный вопрос виден в переписке.'}
+ finally{busy=false;button.disabled=!canAsk;select.disabled=false;input.disabled=false;if(!panel.hidden)input.focus()}
 };
 async function model(){
  try{

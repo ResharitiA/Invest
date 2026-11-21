@@ -5,7 +5,7 @@
 </style></head><body><div class="app"><aside class="side"><div class="brand"><span>G</span>arden</div><nav class="nav"><button data-page="dashboard" class="active">▦ &nbsp; Dashboard</button><button data-page="editor">◇ &nbsp; Workflow Editor</button><button data-page="reports">⚠ &nbsp; Security Reports</button><button data-page="history">◷ &nbsp; Executions</button></nav></aside><main class="main">
 <section id="dashboard"><div class="top"><div><h1>Security overview</h1><div class="muted">Контроль безопасности учебного Kotlin-проекта</div></div><button class="btn" onclick="runWorkflow()">Run audit</button></div><div class="cards"><div class="card"><div class="muted">Всего находок</div><div class="metric" id="total">—</div></div><div class="card"><div class="muted">Critical / High</div><div class="metric" id="risk">—</div></div><div class="card"><div class="muted">Запусков</div><div class="metric" id="runs">—</div></div><div class="card"><div class="muted">Статус</div><div class="metric" id="state">Ready</div></div></div><div class="grid"><div class="panel"><h2>Последние запуски</h2><div id="recent" class="muted">Загрузка…</div></div><div class="panel"><h2>Покрытие анализаторов</h2><div class="row"><span>Secrets Scanner</span><span class="badge">CUSTOM</span></div><div class="row"><span>SCA Scanner</span><span class="badge">LOCAL DB</span></div><div class="row"><span>SAST Scanner</span><span class="badge">KOTLIN</span></div></div></div></section>
 <section id="editor" class="hidden"><div class="top"><div><h1>Workflow Editor</h1><div class="muted">Full Security Audit · drag nodes in the canvas</div></div><button class="btn" onclick="runWorkflow()">Run workflow</button></div><div class="toolbar"><button class="btn secondary" onclick="addNode('if')">+ IF</button><button class="btn secondary" onclick="addNode('ai')">+ AI Analysis</button><button class="btn secondary" onclick="saveWorkflow()">Save workflow</button></div><div id="canvas" class="editor"></div></section>
-<section id="reports" class="hidden"><div class="top"><div><h1>Security Reports</h1><div class="muted">Единый JSON-контракт SECRET · SCA · SAST</div></div><button class="btn secondary" onclick="downloadReport()">Download JSON</button></div><div class="panel"><div class="tabs"><button class="active" onclick="filterFindings('all',this)">All</button><button onclick="filterFindings('SECRET',this)">SECRET</button><button onclick="filterFindings('SCA',this)">SCA</button><button onclick="filterFindings('SAST',this)">SAST</button></div><div id="findings" class="findings">Запустите workflow.</div></div></section>
+<section id="reports" class="hidden"><div class="top"><div><h1>Security Reports</h1><div class="muted">Единый JSON-контракт SECRET · SCA · SAST</div></div><button class="btn secondary" onclick="downloadReport()">Download JSON</button></div><div class="panel"><div class="tabs"><button class="active" onclick="filterFindings('all',this)">All</button><button onclick="filterFindings('SECRET',this)">SECRET</button><button onclick="filterFindings('SCA',this)">SCA</button><button onclick="filterFindings('SAST',this)">SAST</button></div><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px"><label for="severityFilter">Критичность</label><select id="severityFilter" onchange="renderFindings()" style="background:#182943;color:#e8eef8;border:1px solid #526783;border-radius:7px;padding:8px"><option value="all">Все уровни</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option><option value="INFO">Info</option></select><span id="findingCount" class="muted" role="status"></span></div><div id="findings" class="findings">Запустите workflow.</div></div></section>
 <section id="history" class="hidden"><div class="top"><div><h1>Execution history</h1><div class="muted">Сохранённые запуски и события выполнения</div></div></div><div class="panel" id="historyList">Загрузка…</div></section>
 </main></div><script>
 let workflow,latest={findings:[]},currentFilter='all';
@@ -14,14 +14,177 @@ async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw Error(aw
 function show(page){document.querySelectorAll('main section').forEach(x=>x.classList.toggle('hidden',x.id!==page));document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.page===page));if(page==='reports')renderFindings();if(page==='history')loadHistory()}
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page));
 async function load(){[workflow]=await api('/api/workflows');renderCanvas();loadHistory();updateMetrics()}
-function renderCanvas(){const c=$('#canvas');c.innerHTML='';if(!workflow)return;workflow.nodes.forEach(n=>{const e=document.createElement('div');e.className='node';e.style.left=n.x+'px';e.style.top=n.y+'px';e.innerHTML='<b>'+n.type.toUpperCase()+'</b><small>'+n.id+'</small>';e.draggable=true;e.ondragend=ev=>{n.x=Math.max(0,ev.offsetX);n.y=Math.max(0,ev.offsetY);renderCanvas()};c.appendChild(e)})}
-async function runWorkflow(){if(!workflow)return;$('#state').textContent='Running';const run=await api('/api/workflows/'+workflow.id+'/run',{method:'POST'});const es=new EventSource('/api/runs/'+run.id+'/events');es.onmessage=e=>{const v=JSON.parse(e.data);$('#state').textContent=v.status;latest={findings:v.findings||[]};updateMetrics();if(v.status!=='running'){es.close();renderFindings()}}}
-async function updateMetrics(){const rs=await api('/api/runs');const f=rs[0]?.findings||latest.findings||[];latest.findings=f;$('#total').textContent=f.length;$('#risk').textContent=f.filter(x=>x.severity==='CRITICAL'||x.severity==='HIGH').length;$('#runs').textContent=rs.length;$('#recent').innerHTML=rs.slice(0,4).map(r=>'<div class="row"><span>'+r.name+'</span><span class="badge">'+r.status+'</span></div>').join('')||'Нет запусков'}
-function renderFindings(){const fs=latest.findings.filter(x=>currentFilter==='all'||x.category===currentFilter);$('#findings').innerHTML=fs.map(f=>'<article class="finding"><b>'+f.category+' · '+f.class+'</b> <span class="badge '+f.severity+'">'+f.severity+'</span><p>'+f.description+'</p><code>'+f.path+(f.line?':'+f.line:'')+(f.group?'<br>'+f.group+':'+f.artifact+':'+f.version+' · '+f.advisoryId:'')+'</code></article>').join('')||'Находок нет'}
+const nodeNames={manual:'Manual Trigger',repository:'Repository Input',secrets:'Secrets Scanner',sca:'SCA Scanner',sast:'SAST Scanner',merge:'Merge Results',if:'IF / ELSE',ai:'AI Analysis'};
+let selection=null,connecting=null,nodeStates={},executing=false,view={x:30,y:30,zoom:1},editorReady=false;
+function editorMessage(text){$('#editorNotice').textContent=text}
+function changed(){nodeStates={};editorMessage('Есть несохранённые изменения')}
+function setupEditor(){
+ if(editorReady)return;editorReady=true;
+ const style=document.createElement('style');style.textContent=`
+ .main{min-width:0}.toolbar{flex-wrap:wrap}.editor{overflow:hidden;touch-action:none;cursor:grab}
+ #world{position:absolute;transform-origin:0 0;width:1px;height:1px}
+ #links{position:absolute;overflow:visible;width:1px;height:1px}
+ .edge{fill:none;stroke:#8293aa;stroke-width:3;cursor:pointer;pointer-events:stroke}
+ .edge.selected{stroke:#60a5fa;stroke-width:5}.edge-label{fill:#cbd5e1;font-size:12px}
+ .node{width:170px;height:110px;cursor:move;user-select:none;touch-action:none}
+ .node.selected{outline:2px solid #93c5fd}.node[data-state=running]{border:2px solid #facc15}
+ .node[data-state=success]{border:2px solid #34d399}.node[data-state=failed]{border:2px solid #f87171}
+ .node[data-state=skipped]{border-style:dashed;opacity:.6}.node small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .port{position:absolute;background:#22324c;color:#fff;border:1px solid #60a5fa;border-radius:10px;font-size:10px;cursor:pointer;padding:3px 5px}
+ .port.in{left:2px;top:74px}.port.out{right:2px;top:39px}.port.false{top:74px}.node.selected{z-index:2}
+ #nodeSettings{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0}
+ #nodeSettings input{width:100px}#editorNotice{min-height:24px;margin:10px 0;color:#bfdbfe}
+ #editor select,#editor input{background:#182943;color:#fff;border:1px solid #526783;padding:8px;border-radius:6px}
+ `;document.head.append(style);
+ $('#editor .muted').textContent='Выход → вход: соединить. Линия или блок: выбрать. Пустое поле: перемещать. Колесо: масштаб.';
+ const toolbar=$('#editor .toolbar');toolbar.replaceChildren();
+ const types=document.createElement('select');types.id='nodeType';types.setAttribute('aria-label','Тип ноды');
+ for(const [type,name] of Object.entries(nodeNames)){const o=document.createElement('option');o.value=type;o.textContent=name;types.append(o)}
+ toolbar.append(types);
+ const action=(label,fn)=>{const b=document.createElement('button');b.className='btn secondary';b.textContent=label;b.onclick=fn;toolbar.append(b);return b};
+ action('Добавить ноду',()=>addNode(types.value));
+ action('Сохранить',()=>saveWorkflow().catch(e=>editorMessage(e.message)));
+ action('−',()=>zoomAt(view.zoom/1.2));action('+',()=>zoomAt(view.zoom*1.2));action('Сброс вида',()=>{view={x:30,y:30,zoom:1};applyView()});
+ const zoom=document.createElement('span');zoom.id='zoomValue';toolbar.append(zoom);
+ const notice=document.createElement('div');notice.id='editorNotice';notice.setAttribute('role','status');
+ const settings=document.createElement('div');settings.id='nodeSettings';
+ const canvas=$('#canvas');canvas.before(notice,settings);canvas.tabIndex=0;canvas.setAttribute('aria-label','Полотно workflow');
+ canvas.onwheel=e=>{e.preventDefault();zoomAt(view.zoom*(e.deltaY<0?1.1:1/1.1),e.clientX,e.clientY)};
+ canvas.onpointerdown=e=>{
+  if(e.button!==0||e.target.closest('.node,.edge')||executing)return;
+  selection=null;connecting=null;renderSettings();renderCanvas();
+  const start={x:e.clientX,y:e.clientY,vx:view.x,vy:view.y};canvas.setPointerCapture(e.pointerId);
+  canvas.onpointermove=ev=>{view.x=start.vx+ev.clientX-start.x;view.y=start.vy+ev.clientY-start.y;applyView()};
+  canvas.onpointerup=canvas.onpointercancel=()=>{canvas.onpointermove=null};
+ };
+ canvas.onkeydown=e=>{if((e.key==='Delete'||e.key==='Backspace')&&!executing){e.preventDefault();removeSelected()}if(e.key==='Escape'){connecting=null;editorMessage('Соединение отменено')}};
+}
+function applyView(){const w=$('#world');if(w)w.style.transform='translate('+view.x+'px,'+view.y+'px) scale('+view.zoom+')';$('#zoomValue').textContent=Math.round(view.zoom*100)+'%'}
+function zoomAt(value,cx,cy){
+ const c=$('#canvas'),r=c.getBoundingClientRect(),x=cx===undefined?r.width/2:cx-r.left,y=cy===undefined?r.height/2:cy-r.top;
+ const next=Math.min(2,Math.max(.25,value));view.x=x-(x-view.x)*next/view.zoom;view.y=y-(y-view.y)*next/view.zoom;view.zoom=next;applyView();
+}
+function removeSelected(){
+ if(executing||!selection)return;
+ if(selection.kind==='node'){workflow.nodes=workflow.nodes.filter(n=>n.id!==selection.id);workflow.edges=workflow.edges.filter(e=>e.source!==selection.id&&e.target!==selection.id)}
+ else workflow.edges.splice(selection.index,1);
+ selection=null;connecting=null;changed();renderCanvas();renderSettings();
+}
+function renderSettings(){
+ const box=$('#nodeSettings');box.replaceChildren();if(!selection)return;
+ const text=document.createElement('span');
+ if(selection.kind==='node'){
+  const n=workflow.nodes.find(n=>n.id===selection.id);if(!n)return;text.textContent=nodeNames[n.type];box.append(text);
+  if(n.type==='if'){
+   const label=document.createElement('label');label.textContent='Число находок ≥ ';
+   const input=document.createElement('input');input.type='number';input.min='0';input.step='1';input.value=n.config.minimum??1;input.disabled=executing;input.setAttribute('aria-label','Порог IF');
+   input.onchange=()=>{const value=Number(input.value);if(!Number.isSafeInteger(value)||value<0){input.value=n.config.minimum??1;return}n.config.minimum=value;changed();renderCanvas()};label.append(input);box.append(label);
+  }
+ }else{
+  const edge=workflow.edges[selection.index];if(!edge)return;text.textContent='Соединение';box.append(text);
+  if(workflow.nodes.find(n=>n.id===edge.source)?.type==='if'){
+   const select=document.createElement('select');select.setAttribute('aria-label','Ветка IF');select.disabled=executing;
+   for(const value of ['true','false']){const o=document.createElement('option');o.value=value;o.textContent=value;select.append(o)}select.value=edge.branch||'true';
+   select.onchange=()=>{const previous=edge.branch;edge.branch=select.value;try{validateGraph()}catch(e){edge.branch=previous;select.value=previous;editorMessage(e.message);return}changed();renderCanvas()};box.append(select);
+  }
+ }
+ const del=document.createElement('button');del.className='btn secondary';del.textContent='Удалить';del.disabled=executing;del.onclick=removeSelected;box.append(del);
+}
+function validateGraph(){
+ if(!workflow.nodes.length)throw Error('Добавьте хотя бы одну ноду');
+ const ids=new Set(workflow.nodes.map(n=>n.id)),seen=new Set(),adj=new Map(workflow.nodes.map(n=>[n.id,[]]));
+ for(const e of workflow.edges){
+  if(!ids.has(e.source)||!ids.has(e.target))throw Error('Связь с отсутствующей нодой');
+  const key=JSON.stringify([e.source,e.target,e.branch||'']);if(seen.has(key))throw Error('Такое соединение уже есть');seen.add(key);
+  adj.get(e.source).push(e.target);
+ }
+ const visiting=new Set(),done=new Set();
+ function visit(id){if(visiting.has(id))throw Error('Соединение создаёт цикл');if(done.has(id))return;visiting.add(id);for(const target of adj.get(id))visit(target);visiting.delete(id);done.add(id)}
+ for(const id of ids)visit(id);
+}
+function connectTo(id){
+ if(executing||!connecting)return;
+ const edge={source:connecting.id,target:id,branch:connecting.branch};workflow.edges.push(edge);
+ try{validateGraph()}catch(e){workflow.edges.pop();editorMessage(e.message);return}
+ connecting=null;changed();renderCanvas();renderSettings();
+}
+function renderCanvas(){
+ setupEditor();const c=$('#canvas');c.replaceChildren();if(!workflow)return;
+ const world=document.createElement('div');world.id='world';c.append(world);
+ const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.id='links';world.append(svg);
+ workflow.edges.forEach((edge,index)=>{
+  const a=workflow.nodes.find(n=>n.id===edge.source),b=workflow.nodes.find(n=>n.id===edge.target);if(!a||!b)return;
+  const x=a.x+170,y=a.y+(edge.branch==='false'?85:50),tx=b.x,ty=b.y+85,curve=Math.max(50,Math.abs(tx-x)/2);
+  const path=document.createElementNS(ns,'path');path.setAttribute('d',`M ${x} ${y} C ${x+curve} ${y}, ${tx-curve} ${ty}, ${tx} ${ty}`);
+  path.setAttribute('class','edge'+(selection?.kind==='edge'&&selection.index===index?' selected':''));path.dataset.index=index;
+  path.onclick=()=>{if(executing)return;selection={kind:'edge',index};connecting=null;renderCanvas();renderSettings();c.focus()};svg.append(path);
+  if(edge.branch){const label=document.createElementNS(ns,'text');label.setAttribute('x',x+12);label.setAttribute('y',y-9);label.setAttribute('class','edge-label');label.textContent=edge.branch;label.style.pointerEvents='none';svg.append(label)}
+ });
+ workflow.nodes.forEach(n=>{
+  const el=document.createElement('div');el.className='node'+(selection?.kind==='node'&&selection.id===n.id?' selected':'');el.dataset.id=n.id;el.dataset.state=nodeStates[n.id]||'idle';el.style.left=n.x+'px';el.style.top=n.y+'px';
+  const title=document.createElement('b');title.textContent=nodeNames[n.type]||n.type;
+  const state=document.createElement('small');state.textContent=({idle:'Ожидание',waiting:'В очереди',running:'Выполняется',success:'Готово',failed:'Ошибка',skipped:'Пропущено'})[el.dataset.state]||el.dataset.state;
+  el.append(title,state);
+  if(n.type==='if'){const condition=document.createElement('small');condition.textContent='Находок ≥ '+(n.config.minimum??1);el.append(condition)}
+  const port=(text,cls,fn)=>{const b=document.createElement('button');b.className='port '+cls;b.textContent=text;b.disabled=executing;b.onpointerdown=e=>e.stopPropagation();b.onclick=e=>{e.stopPropagation();fn()};el.append(b)};
+  port('Вход','in',()=>connectTo(n.id));
+  for(const branch of n.type==='if'?['true','false']:[''])port(branch||'Выход','out'+(branch==='false'?' false':''),()=>{connecting={id:n.id,branch};editorMessage('Выберите вход целевой ноды ('+(branch||'выход')+')')});
+  el.onpointerdown=e=>{
+   if(e.button!==0||executing)return;e.stopPropagation();selection={kind:'node',id:n.id};renderSettings();c.focus();
+   c.querySelectorAll('.node').forEach(v=>v.classList.toggle('selected',v.dataset.id===n.id));
+   const start={x:e.clientX,y:e.clientY,nx:n.x,ny:n.y};el.setPointerCapture(e.pointerId);let moved=false;
+   el.onpointermove=ev=>{const dx=(ev.clientX-start.x)/view.zoom,dy=(ev.clientY-start.y)/view.zoom;if(Math.abs(dx)+Math.abs(dy)<2&&!moved)return;moved=true;n.x=Math.max(0,start.nx+dx);n.y=Math.max(0,start.ny+dy);el.style.left=n.x+'px';el.style.top=n.y+'px'};
+   el.onpointerup=el.onpointercancel=()=>{el.onpointermove=null;if(moved){changed();renderCanvas()}};
+  };world.append(el);
+ });applyView();
+}
+async function runWorkflow(){
+ if(!workflow||executing)return;
+ executing=true;renderCanvas();renderSettings();
+ const unlock=()=>{executing=false;renderCanvas();renderSettings()};
+ try{
+  await saveWorkflow();nodeStates=Object.fromEntries(workflow.nodes.map(n=>[n.id,'waiting']));renderCanvas();
+  $('#state').textContent='Running';editorMessage('Workflow выполняется');
+  const run=await api('/api/workflows/'+workflow.id+'/run',{method:'POST'});
+  const es=new EventSource('/api/runs/'+run.id+'/events');
+  es.onmessage=e=>{
+   const v=JSON.parse(e.data);nodeStates=v.nodes||{};$('#state').textContent=v.status;latest={findings:v.findings||[]};renderCanvas();renderFindings();
+   if(v.status!=='running'){es.close();unlock();editorMessage(v.error||'Workflow завершён: '+v.status);updateMetrics().catch(err=>editorMessage(err.message));loadHistory().catch(err=>editorMessage(err.message))}
+  };
+  es.onerror=()=>{es.close();unlock();editorMessage('Связь с запуском потеряна. Проверьте историю перед повторным запуском.')};
+ }catch(e){unlock();editorMessage(e.message);$('#state').textContent='Ошибка'}
+}
+async function updateMetrics(){const rs=await api('/api/runs');const f=rs[0]?.findings||latest.findings||[];latest.findings=f;$('#total').textContent=f.length;$('#risk').textContent=f.filter(x=>x.severity==='CRITICAL'||x.severity==='HIGH').length;$('#runs').textContent=rs.length;renderFindings();$('#recent').innerHTML=rs.slice(0,4).map(r=>'<div class="row"><span>'+r.name+'</span><span class="badge">'+r.status+'</span></div>').join('')||'Нет запусков'}
+function visibleFindings(){const severity=$('#severityFilter').value;return latest.findings.filter(f=>(currentFilter==='all'||f.category===currentFilter)&&(severity==='all'||f.severity===severity))}
+function renderFindings(){
+ const fs=visibleFindings(),container=$('#findings');container.replaceChildren();
+ $('#findingCount').textContent='Показано '+fs.length+' из '+latest.findings.length;
+ for(const f of fs){
+  const article=document.createElement('article');article.className='finding';
+  const title=document.createElement('b');title.textContent=f.category+' · '+f.class;
+  const badge=document.createElement('span');badge.className='badge';if(['CRITICAL','HIGH','MEDIUM','LOW','INFO'].includes(f.severity))badge.classList.add(f.severity);badge.textContent=f.severity;
+  const description=document.createElement('p');description.textContent=f.description;
+  const location=document.createElement('code');location.textContent=f.path+(f.line?':'+f.line:'');
+  article.append(title,' ',badge,description,location);
+  if(f.group){const dependency=document.createElement('p');dependency.textContent=f.group+':'+f.artifact+':'+f.version+' · '+f.advisoryId;article.append(dependency)}
+  const fix=document.createElement('p');fix.textContent='Рекомендация: '+(f.remediation||'Рекомендация не указана.');article.append(fix);container.append(article);
+ }
+ if(!fs.length)container.textContent=latest.findings.length?'Нет находок по выбранным фильтрам.':'Находок нет. Запустите workflow, если проверка ещё не выполнялась.';
+}
 function filterFindings(f,b){currentFilter=f;document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active');renderFindings()}
 async function loadHistory(){const rs=await api('/api/runs');$('#historyList').innerHTML=rs.map(r=>'<div class="row"><span>'+new Date(r.started*1000).toLocaleString()+' · '+r.name+'</span><span><span class="badge">'+r.status+'</span> '+(r.findings?.length||0)+' findings</span></div>').join('')||'Нет запусков'}
-async function saveWorkflow(){await api('/api/workflows/'+workflow.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(workflow)});alert('Workflow saved')}
-function addNode(type){const id=crypto.randomUUID();const tails=workflow.nodes.filter(n=>!workflow.edges.some(e=>e.source===n.id));workflow.nodes.push({id,type,x:80+workflow.nodes.length*30,y:360,config:{}});if(type==='ai')tails.forEach(n=>workflow.edges.push({source:n.id,target:id,branch:''}));renderCanvas()}
+async function saveWorkflow(){
+ validateGraph();
+ await api('/api/workflows/'+workflow.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(workflow)});
+ editorMessage('Workflow сохранён');
+}
+function addNode(type){
+ if(executing||!workflow)return;
+ if(workflow.nodes.length>=100){editorMessage('Максимум 100 нод');return}
+ const id=crypto.randomUUID(),c=$('#canvas');
+ workflow.nodes.push({id,type,x:Math.max(0,(c.clientWidth/2-view.x)/view.zoom-85),y:Math.max(0,(c.clientHeight/2-view.y)/view.zoom-55),config:type==='if'?{minimum:1}:{}});
+ selection={kind:'node',id};changed();renderCanvas();renderSettings();
+}
 function downloadReport(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({findings:latest.findings},null,2)],{type:'application/json'}));a.download='security-report.json';a.click()}
 load();
 </script><script type="module" src="/assets/helper.js"></script></body></html>

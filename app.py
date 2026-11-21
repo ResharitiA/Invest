@@ -80,6 +80,22 @@ def order(flow):
     edges = flow["edges"]
     if any(e["source"] not in nodes or e["target"] not in nodes for e in edges):
         raise ValueError("Соединение с отсутствующей нодой")
+    seen = set()
+    for edge in edges:
+        branch = edge.get("branch", "")
+        if branch not in {"", "true", "false"}:
+            raise ValueError("Неизвестная ветка соединения")
+        if branch and nodes[edge["source"]]["type"] != "if":
+            raise ValueError("Ветви true/false доступны только для IF")
+        key = (edge["source"], edge["target"], branch)
+        if key in seen:
+            raise ValueError("Соединение уже существует")
+        seen.add(key)
+    for node in nodes.values():
+        if node["type"] == "if":
+            minimum = node.get("config", {}).get("minimum", 1)
+            if type(minimum) is not int or minimum < 0:
+                raise ValueError("Порог IF должен быть целым неотрицательным числом")
     result = []
     while len(result) < len(nodes):
         ready = [i for i in nodes if i not in result and all(e["source"] in result for e in edges if e["target"] == i)]
@@ -117,7 +133,7 @@ def index():
 def helper_asset(name: str):
     if name not in {"Helper1.obj", "Helper1.mtl", "helper.js"}:
         raise HTTPException(404)
-    return FileResponse(ROOT / ("helper.js" if name == "helper.js" else "3d/" + name))
+    return FileResponse(ROOT / ("helper.js" if name == "helper.js" else "3d/" + name), headers={"Cache-Control": "no-store"})
 
 
 class HelperQuestion(BaseModel):
@@ -136,9 +152,10 @@ async def assistant_answer(body: HelperQuestion):
     if run["status"] == "running":
         raise HTTPException(409, "Дождитесь завершения проверки")
     try:
-        result = await assess(run["findings"], body.question)
+        result = await assess(run["findings"], body.question, history=run.get("assistant", []))
     except Exception as exc:
         raise HTTPException(502, str(exc) if isinstance(exc, ValueError) else "Не удалось связаться с AI-провайдером")
+    run = get("runs", body.run_id)
     run.setdefault("assistant", []).append({"question": body.question, "answer": result})
     save("runs", run)
     return result
@@ -238,6 +255,8 @@ async def execute(run, flow):
         for ident, state in run["nodes"].items():
             if state == "running":
                 run["nodes"][ident] = "failed"
+            elif state == "waiting":
+                run["nodes"][ident] = "skipped"
     finally:
         run["finished"] = time.time()
         save("runs", run)
@@ -249,8 +268,12 @@ tasks = set()
 @app.post("/api/workflows/{ident}/run")
 async def start(ident: str):
     flow = get("workflows", ident)
-    order(flow)
-    run = dict(id=uuid.uuid4().hex, workflow_id=ident, name=flow["name"], started=time.time(), status="running", nodes={}, findings=[], error=None)
+    try:
+        order(flow)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    run = dict(id=uuid.uuid4().hex, workflow_id=ident, name=flow["name"], started=time.time(), status="running",
+               nodes={n["id"]: "waiting" for n in flow["nodes"]}, findings=[], error=None)
     save("runs", run)
     task = asyncio.create_task(execute(run, flow))
     tasks.add(task)
