@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 from scanners import ROOT, SCANNERS, texts
 from ai_helper import assess, configured
 from contextlib import closing
+import copy
+import notifications
 
 DB = ROOT / "garden.sqlite3"
 DEMO = ROOT / "git_org/training-main/training-project"
@@ -72,7 +74,15 @@ class Workflow(BaseModel):
     edges: list[Edge] = Field(default_factory=list, max_length=300)
 
 
-TYPES = ["manual", "repository", "secrets", "sca", "sast", "merge", "if", "ai"]
+TYPES = ["manual", "repository", "secrets", "sca", "sast", "merge", "if", "ai", "webhook"]
+
+
+def public_flow(flow):
+    value = copy.deepcopy(flow)
+    for node in value["nodes"]:
+        if node["type"] == "webhook":
+            node["config"] = notifications.public(node["config"])
+    return value
 
 
 def order(flow):
@@ -97,6 +107,12 @@ def order(flow):
             raise ValueError("Соединение уже существует")
         seen.add(key)
     for node in nodes.values():
+        if node["type"] == "webhook":
+            notifications.validate(notifications.public(node["config"]))
+            if any(e["source"] == node["id"] for e in edges):
+                raise ValueError("Webhook должен быть конечной нодой")
+            if not any(e["target"] == node["id"] for e in edges):
+                raise ValueError("Подключите вход Webhook к графу")
         if node["type"] == "if":
             minimum = node.get("config", {}).get("minimum", 1)
             if type(minimum) is not int or minimum < 0:
@@ -257,7 +273,7 @@ async def upload_project(request: Request, project_id: str, filename: str):
 
 @app.get("/api/workflows")
 def workflows():
-    return all_of("workflows")
+    return [public_flow(f) for f in all_of("workflows")]
 
 
 @app.get("/api/nodes")
@@ -275,10 +291,32 @@ def update_workflow(ident: str, body: Workflow):
     value = dict(id=ident, **body.model_dump())
     get("projects", value["project_id"])
     try:
+        previous = next((f for f in all_of("workflows") if f["id"] == ident), {})
+        old_nodes = {n["id"]: n for n in previous.get("nodes", [])}
+        for node in value["nodes"]:
+            if node["type"] == "webhook":
+                node["config"] = notifications.protect(node["config"], old_nodes.get(node["id"], {}).get("config"))
         order(value)
-    except ValueError as e:
-        raise HTTPException(422, str(e))
-    return save("workflows", value)
+    except ValueError:
+        raise HTTPException(422, "Некорректный граф или Webhook. Проверьте URL, метод, таймаут, заголовки и GARDEN_WEBHOOK_KEY.")
+    save("workflows", value)
+    return public_flow(value)
+
+
+class NotificationTest(BaseModel):
+    workflow_id: str
+    node_id: str
+
+
+@app.post("/api/notifications/test")
+async def test_notification(body: NotificationTest):
+    flow = get("workflows", body.workflow_id)
+    node = next((n for n in flow["nodes"] if n["id"] == body.node_id and n["type"] == "webhook"), None)
+    if node is None:
+        raise HTTPException(404, "Webhook не найден")
+    result = await asyncio.to_thread(notifications.send, node["config"], {"test": True, "workflow": flow["name"]})
+    save("notification_tests", dict(id=uuid.uuid4().hex, workflow_id=body.workflow_id, node_id=body.node_id, started=time.time(), **result))
+    return result
 
 
 @app.get("/api/runs")
@@ -335,8 +373,20 @@ async def execute(run, flow):
                 run.setdefault("ai", {})[ident] = payload["ai"]
             outputs[ident] = payload
             run["findings"] = list({f["id"]:f for f in run["findings"]+payload["findings"]}.values())
-            run["nodes"][ident] = "success"
+            run["nodes"][ident] = "waiting" if kind == "webhook" else "success"
             save("runs", run)
+        deliveries = run.setdefault("notifications", {})
+        for node in flow["nodes"]:
+            if node["type"] != "webhook" or node["id"] not in outputs:
+                continue
+            run["nodes"][node["id"]] = "running"
+            save("runs", run)
+            delivery = await asyncio.to_thread(notifications.send, node["config"], notifications.report(run))
+            deliveries[node["id"]] = delivery
+            run["nodes"][node["id"]] = delivery["status"]
+            save("runs", run)
+        if any(d["status"] == "failed" for d in deliveries.values()):
+            raise ValueError("Не удалось доставить Webhook; подробности в журнале доставки")
         run["status"] = "success"
     except Exception as e:
         run["status"] = "failed"

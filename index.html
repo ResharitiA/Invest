@@ -60,7 +60,7 @@ async function refreshProjects(){
   row.append(description,file,choose);list.append(row);
  }
 }
-const nodeNames={manual:'Manual Trigger',repository:'Repository Input',secrets:'Secrets Scanner',sca:'SCA Scanner',sast:'SAST Scanner',merge:'Merge Results',if:'IF / ELSE',ai:'AI Analysis'};
+const nodeNames={manual:'Manual Trigger',repository:'Repository Input',secrets:'Secrets Scanner',sca:'SCA Scanner',sast:'SAST Scanner',merge:'Merge Results',if:'IF / ELSE',ai:'AI Analysis',webhook:'HTTP Webhook'};
 let selection=null,connecting=null,nodeStates={},executing=false,view={x:30,y:30,zoom:1},editorReady=false;
 function editorMessage(text){$('#editorNotice').textContent=text}
 function changed(){nodeStates={};editorMessage('Есть несохранённые изменения')}
@@ -121,6 +121,20 @@ function renderSettings(){
  const text=document.createElement('span');
  if(selection.kind==='node'){
   const n=workflow.nodes.find(n=>n.id===selection.id);if(!n)return;text.textContent=nodeNames[n.type];box.append(text);
+  if(n.type==='webhook'){
+   const note=document.createElement('small');note.textContent='Конечная нода. Только публичные адреса, без перенаправлений. Токен и заголовки требуют HTTPS. Сохранённые credentials: '+(n.config.has_credentials?'есть':'нет');box.append(note);
+   for(const [key,title,type,fallback] of [['url','URL','url',''],['method','Метод POST / PUT','text','POST'],['timeout','Таймаут, секунды','number',10],['message','Текст сообщения','text',''],['token','Новый Bearer-токен','password','']]){
+    const label=document.createElement('label');label.textContent=title+' ';
+    const input=document.createElement('input');input.type=type;input.style.width=key==='url'?'320px':'180px';input.value=n.config[key]??fallback;input.disabled=executing;input.autocomplete='off';
+    input.oninput=()=>{n.config[key]=key==='timeout'?Number(input.value):input.value;changed()};label.append(input);box.append(label);
+   }
+   const label=document.createElement('label');label.textContent='Новые заголовки JSON (заменяют credentials вместе с токеном) ';
+   const headers=document.createElement('textarea');headers.value=JSON.stringify(n.config.headers||{});headers.disabled=executing;headers.setAttribute('aria-label','Заголовки Webhook JSON');
+   headers.onchange=()=>{try{const value=JSON.parse(headers.value);if(!value||Array.isArray(value)||typeof value!=='object'||Object.values(value).some(v=>typeof v!=='string'))throw Error();n.config.headers=value;headers.setCustomValidity('');changed()}catch(e){headers.setCustomValidity('Введите JSON-объект со строковыми значениями');headers.reportValidity()}};label.append(headers);box.append(label);
+   const clear=document.createElement('button');clear.className='btn secondary';clear.textContent='Очистить credentials';clear.disabled=executing;clear.onclick=()=>{n.config.clear_credentials=true;delete n.config.token;delete n.config.headers;changed();renderSettings()};box.append(clear);
+   const test=document.createElement('button');test.className='btn secondary';test.textContent='Сохранить и проверить подключение';test.disabled=executing;
+   test.onclick=async()=>{test.disabled=true;try{await saveWorkflow();const r=await api('/api/notifications/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({workflow_id:workflow.id,node_id:n.id})});editorMessage('Тест Webhook: '+r.status+' · HTTP '+(r.http_status??'—')+' · '+r.duration_ms+' мс'+(r.error?' · '+r.error:''))}catch(e){editorMessage(e.message)}finally{test.disabled=false}};box.append(test);
+  }
   if(n.type==='if'){
    const label=document.createElement('label');label.textContent='Число находок ≥ ';
    const input=document.createElement('input');input.type='number';input.min='0';input.step='1';input.value=n.config.minimum??1;input.disabled=executing;input.setAttribute('aria-label','Порог IF');
@@ -264,10 +278,19 @@ function renderFindings(){
  if(!fs.length)container.textContent=latest.findings.length?'Нет находок по выбранным фильтрам.':'Находок нет. Запустите workflow, если проверка ещё не выполнялась.';
 }
 function filterFindings(f,b){currentFilter=f;document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active');renderFindings()}
-async function loadHistory(){const rs=await api('/api/runs');$('#historyList').innerHTML=rs.map(r=>'<div class="row"><span>'+new Date(r.started*1000).toLocaleString()+' · '+r.name+'</span><span><span class="badge">'+r.status+'</span> '+(r.findings?.length||0)+' findings</span></div>').join('')||'Нет запусков'}
+async function loadHistory(){
+ const rs=await api('/api/runs'),list=$('#historyList');list.replaceChildren();
+ for(const r of rs){
+  const row=document.createElement('div');row.className='row';row.textContent=new Date(r.started*1000).toLocaleString()+' · '+r.name+' · '+r.status+' · '+(r.findings?.length||0)+' findings';list.append(row);
+  for(const [id,d] of Object.entries(r.notifications||{})){const detail=document.createElement('p');detail.textContent='Webhook '+id+': '+d.status+' · HTTP '+(d.http_status??'—')+' · '+d.duration_ms+' мс'+(d.error?' · '+d.error:'');list.append(detail)}
+ }
+ if(!rs.length)list.textContent='Нет запусков';
+}
 async function saveWorkflow(){
+ const headers=$('#nodeSettings textarea');if(headers&&!headers.reportValidity())throw Error('Исправьте JSON заголовков');
  validateGraph();
- await api('/api/workflows/'+workflow.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(workflow)});
+ const saved=await api('/api/workflows/'+workflow.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(workflow)});
+ workflow=saved;renderSettings();
  editorMessage('Workflow сохранён');
 }
 function addNode(type){
