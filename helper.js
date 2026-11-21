@@ -93,7 +93,19 @@ async function model(){
   object.position.copy(center).multiplyScalar(-scale);object.scale.setScalar(scale);
   const pivot=new THREE.Group();pivot.add(object);scene.add(pivot);camera.position.set(0,0,4.5);
   const reduced=matchMedia('(prefers-reduced-motion: reduce)');
-  renderer.setAnimationLoop(t=>{if(!reduced.matches){pivot.rotation.y=Math.sin(t*.0005)*.16;pivot.position.y=Math.sin(t*.002)*.04}renderer.render(scene,camera)});
+  let spinStart=null;
+  toggle.addEventListener('click',()=>{if(!reduced.matches)spinStart=performance.now()});
+  renderer.setAnimationLoop(t=>{
+   let turn=0;
+   if(spinStart!==null){
+    const progress=Math.min(1,Math.max(0,(performance.now()-spinStart)/850));
+    turn=2*Math.PI*(1-Math.pow(1-progress,3));
+    if(progress===1||reduced.matches){spinStart=null;turn=0}
+   }
+   pivot.rotation.y=reduced.matches?0:Math.sin(t*.0005)*.16+turn;
+   pivot.position.y=reduced.matches?0:Math.sin(t*.002)*.04;
+   renderer.render(scene,camera);
+  });
  }catch(e){root.querySelector('canvas').hidden=true;toggle.style.height='60px';toggle.title='3D недоступно; чат продолжает работать';console.warn('Helper1:',e)}
 }
 model();
