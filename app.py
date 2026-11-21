@@ -15,11 +15,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from scanners import ROOT, SCANNERS, texts
-from ai_helper import assess, configured
+from backend.scanners import ROOT, SCANNERS, texts
+from backend.ai_helper import assess, configured
 from contextlib import closing
 import copy
-import notifications
+from backend import notifications
 
 DB = ROOT / "garden.sqlite3"
 DEMO = ROOT / "git_org/training-main/training-project"
@@ -147,14 +147,14 @@ app = FastAPI(title="Garden · Security Workflows", lifespan=lifespan)
 
 @app.get("/")
 def index():
-    return FileResponse(ROOT / "index.html")
+    return FileResponse(ROOT / "frontend/index.html")
 
 
 @app.get("/assets/{name}")
 def helper_asset(name: str):
     if name not in {"Helper1.obj", "Helper1.mtl", "helper.js"}:
         raise HTTPException(404)
-    return FileResponse(ROOT / ("helper.js" if name == "helper.js" else "3d/" + name), headers={"Cache-Control": "no-store"})
+    return FileResponse(ROOT / ("frontend/helper.js" if name == "helper.js" else "3d/" + name), headers={"Cache-Control": "no-store"})
 
 
 class HelperQuestion(BaseModel):

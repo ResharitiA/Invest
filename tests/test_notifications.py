@@ -10,7 +10,7 @@ from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 import app
-import notifications as n
+from backend import notifications as n
 
 
 @pytest.fixture
