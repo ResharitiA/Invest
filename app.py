@@ -6,7 +6,12 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+import io
+import stat
+import zipfile
+from pathlib import PurePosixPath
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -171,6 +176,85 @@ def create_project(body: Project):
     return save("projects", dict(id=uuid.uuid4().hex, name=body.name, source="empty"))
 
 
+@app.get("/api/projects/{ident}")
+def project_detail(ident: str):
+    return get("projects", ident)
+
+
+def uploaded_files(data, filename):
+    def safe_path(name):
+        path = PurePosixPath(name.replace("\\", "/"))
+        if not name or path.is_absolute() or any(p == ".." or ":" in p for p in path.parts):
+            raise ValueError("Недопустимый путь файла")
+        if any(p.lower() in {".git", "node_modules", ".venv", "__pycache__"} for p in path.parts):
+            raise ValueError("Служебные каталоги загружать нельзя")
+        return path.as_posix()
+
+    def decode(name, content):
+        allowed = {".kt", ".kts", ".gradle", ".yaml", ".yml", ".properties", ".toml", ".lockfile", ".json", ".xml", ".env", ".sql"}
+        if PurePosixPath(name).suffix.lower() not in allowed and PurePosixPath(name).name not in {".env", "gradle.lockfile"}:
+            return None
+        return content.decode("utf-8-sig")
+
+    result = {}
+    if filename.lower().endswith(".zip"):
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            entries = archive.infolist()
+            if len(entries) > 1000:
+                raise ValueError("В архиве больше 1000 элементов")
+            total = 0
+            seen = set()
+            for entry in entries:
+                name = safe_path(entry.filename)
+                mode = entry.external_attr >> 16
+                if stat.S_ISLNK(mode) or stat.S_IFMT(mode) not in {0, stat.S_IFREG, stat.S_IFDIR}:
+                    raise ValueError("Ссылки и специальные файлы запрещены")
+                key = name.casefold()
+                if key in seen:
+                    raise ValueError("Повторяющиеся пути в архиве")
+                seen.add(key)
+                if entry.is_dir():
+                    continue
+                total += entry.file_size
+                if entry.file_size > 1024 * 1024 or total > 30 * 1024 * 1024:
+                    raise ValueError("Лимит: 1 МБ на файл, 30 МБ после распаковки")
+                with archive.open(entry) as stream:
+                    content = stream.read(1024 * 1024 + 1)
+                if len(content) > 1024 * 1024:
+                    raise ValueError("Файл превышает 1 МБ")
+                text = decode(name, content)
+                if text is not None:
+                    result[name] = text
+    else:
+        name = safe_path(filename)
+        if len(data) > 1024 * 1024:
+            raise ValueError("Файл превышает 1 МБ")
+        text = decode(name, data)
+        if text is not None:
+            result[name] = text
+    if not result:
+        raise ValueError("Нет поддерживаемых исходников UTF-8")
+    return result
+
+
+@app.post("/api/projects/upload")
+async def upload_project(request: Request, project_id: str, filename: str):
+    project = get("projects", project_id)
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > 10 * 1024 * 1024:
+            raise HTTPException(413, "Загрузка превышает 10 МБ")
+    try:
+        files = await asyncio.to_thread(uploaded_files, bytes(data), filename)
+    except (ValueError, UnicodeError, zipfile.BadZipFile, RuntimeError, NotImplementedError, OSError) as exc:
+        raise HTTPException(422, "Загрузка отклонена: " + str(exc))
+    version = uuid.uuid4().hex
+    save("sources", dict(id=version, project_id=project_id, files=files))
+    project.update(source="upload", source_id=version, file_count=len(files), uploaded=time.time())
+    return save("projects", project)
+
+
 @app.get("/api/workflows")
 def workflows():
     return all_of("workflows")
@@ -215,10 +299,15 @@ def report(ident: str):
 async def execute(run, flow):
     outputs = {}
     try:
-        project = get("projects", flow["project_id"])
-        if project["source"] != "organizer":
+        if run.get("source_id"):
+            source = get("sources", run["source_id"])
+            if source["project_id"] != flow["project_id"]:
+                raise ValueError("Исходники принадлежат другому проекту")
+            files = source["files"]
+        elif run.get("source") == "organizer":
+            files = await asyncio.to_thread(texts, DEMO)
+        else:
             raise ValueError("В проект ещё не загружены исходные файлы")
-        files = await asyncio.to_thread(texts, DEMO)
         for ident in order(flow):
             node = next(n for n in flow["nodes"] if n["id"] == ident)
             incoming = [e for e in flow["edges"] if e["target"] == ident]
@@ -272,7 +361,11 @@ async def start(ident: str):
         order(flow)
     except ValueError as exc:
         raise HTTPException(422, str(exc))
-    run = dict(id=uuid.uuid4().hex, workflow_id=ident, name=flow["name"], started=time.time(), status="running",
+    project = get("projects", flow["project_id"])
+    if project["source"] == "empty":
+        raise HTTPException(422, "Сначала загрузите исходники проекта")
+    run = dict(id=uuid.uuid4().hex, workflow_id=ident, project_id=project["id"], project_name=project["name"],
+               source=project["source"], source_id=project.get("source_id"), name=flow["name"], started=time.time(), status="running",
                nodes={n["id"]: "waiting" for n in flow["nodes"]}, findings=[], error=None)
     save("runs", run)
     task = asyncio.create_task(execute(run, flow))

@@ -13,7 +13,53 @@ const $=s=>document.querySelector(s);
 async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw Error(await r.text());return r.json()}
 function show(page){document.querySelectorAll('main section').forEach(x=>x.classList.toggle('hidden',x.id!==page));document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.page===page));if(page==='reports')renderFindings();if(page==='history')loadHistory()}
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page));
-async function load(){[workflow]=await api('/api/workflows');renderCanvas();loadHistory();updateMetrics()}
+async function load(){try{[workflow]=await api('/api/workflows');renderCanvas();setupProjects();await refreshProjects();loadHistory();await updateMetrics()}catch(e){alert(e.message)}}
+let projectList=[];
+function setupProjects(){
+ const nav=document.createElement('button');nav.dataset.page='projects';nav.textContent='Projects';nav.onclick=()=>{show('projects');refreshProjects().catch(e=>projectNotice(e.message))};$('.nav').append(nav);
+ const section=document.createElement('section');section.id='projects';section.className='hidden';
+ section.innerHTML='<div class="top"><div><h1>Projects</h1><p class="muted">Собственные и разрешённые учебные исходники. Код не выполняется.</p></div></div><form id="projectForm" class="toolbar"><input id="projectName" aria-label="Название проекта" maxlength="120" placeholder="Название проекта" required><button class="btn">Создать проект</button></form><p class="muted">Загрузка заменяет исходники проекта целиком. ZIP: до 10 МБ, до 1000 элементов, до 30 МБ распакованных данных; файл до 1 МБ. Можно загрузить один исходный файл UTF-8. Для набора файлов используйте ZIP.</p><p id="projectNotice" role="status"></p><div id="projectList" class="panel"></div>';
+ $('main').append(section);
+ const label=document.createElement('label');label.textContent='Проект ';
+ const select=document.createElement('select');select.id='projectSelect';select.setAttribute('aria-label','Проект workflow');label.append(select);$('#editor .toolbar').prepend(label);
+ select.onchange=async()=>{
+  if(executing)return;workflow.project_id=select.value;latest={findings:[]};changed();renderFindings();
+  try{await updateMetrics()}catch(e){editorMessage(e.message)}
+ };
+ $('#projectForm').onsubmit=async e=>{
+  e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;
+  try{
+   const name=$('#projectName').value.trim();if(!name)throw Error('Введите название проекта');
+   const project=await api('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+   $('#projectName').value='';await refreshProjects();projectNotice('Проект создан: '+project.name+'. Загрузите исходники.');
+  }catch(error){projectNotice(error.message)}finally{button.disabled=false}
+ };
+}
+function projectNotice(text){$('#projectNotice').textContent=text}
+async function refreshProjects(){
+ projectList=await api('/api/projects');
+ const select=$('#projectSelect');select.replaceChildren();
+ for(const p of projectList){const o=document.createElement('option');o.value=p.id;o.textContent=p.name+(p.source==='empty'?' — нет исходников':'');select.append(o)}
+ select.value=workflow.project_id;select.disabled=executing;
+ const list=$('#projectList');list.replaceChildren();
+ for(const p of projectList){
+  const row=document.createElement('div');row.className='row';row.style.gap='12px';row.style.flexWrap='wrap';
+  const description=document.createElement('span');description.textContent=p.name+' · '+(p.source==='organizer'?'Учебный пример':p.source==='empty'?'Нет исходников':p.file_count+' файлов');
+  const file=document.createElement('input');file.type='file';file.setAttribute('aria-label','Исходники '+p.name);file.disabled=executing;
+  file.onchange=async()=>{
+   if(!file.files.length)return;const upload=file.files[0];file.disabled=true;
+   try{
+    if(upload.size>10*1024*1024)throw Error('Файл загрузки превышает 10 МБ');
+    projectNotice('Загрузка '+upload.name+'…');
+    await api('/api/projects/upload?project_id='+encodeURIComponent(p.id)+'&filename='+encodeURIComponent(upload.name),{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:upload});
+    await refreshProjects();projectNotice('Исходники '+p.name+' загружены.');
+   }catch(e){projectNotice(e.message);file.disabled=false;file.value=''}
+  };
+  const choose=document.createElement('button');choose.className='btn secondary';choose.textContent='В редактор';choose.disabled=executing;
+  choose.onclick=()=>{workflow.project_id=p.id;select.value=p.id;latest={findings:[]};changed();show('editor');updateMetrics().catch(e=>editorMessage(e.message))};
+  row.append(description,file,choose);list.append(row);
+ }
+}
 const nodeNames={manual:'Manual Trigger',repository:'Repository Input',secrets:'Secrets Scanner',sca:'SCA Scanner',sast:'SAST Scanner',merge:'Merge Results',if:'IF / ELSE',ai:'AI Analysis'};
 let selection=null,connecting=null,nodeStates={},executing=false,view={x:30,y:30,zoom:1},editorReady=false;
 function editorMessage(text){$('#editorNotice').textContent=text}
@@ -176,7 +222,9 @@ function renderCanvas(){
 async function runWorkflow(){
  if(!workflow||executing)return;
  executing=true;renderCanvas();renderSettings();
- const unlock=()=>{executing=false;renderCanvas();renderSettings()};
+ const projectControls=()=>document.querySelectorAll('#projectSelect,#projectList input,#projectList button').forEach(e=>e.disabled=executing);
+ projectControls();
+ const unlock=()=>{executing=false;projectControls();renderCanvas();renderSettings()};
  try{
   await saveWorkflow();nodeStates=Object.fromEntries(workflow.nodes.map(n=>[n.id,'waiting']));renderCanvas();
   $('#state').textContent='Running';editorMessage('Workflow выполняется');
@@ -189,7 +237,16 @@ async function runWorkflow(){
   es.onerror=()=>{es.close();unlock();editorMessage('Связь с запуском потеряна. Проверьте историю перед повторным запуском.')};
  }catch(e){unlock();editorMessage(e.message);$('#state').textContent='Ошибка'}
 }
-async function updateMetrics(){const rs=await api('/api/runs');const f=rs[0]?.findings||latest.findings||[];latest.findings=f;$('#total').textContent=f.length;$('#risk').textContent=f.filter(x=>x.severity==='CRITICAL'||x.severity==='HIGH').length;$('#runs').textContent=rs.length;renderFindings();$('#recent').innerHTML=rs.slice(0,4).map(r=>'<div class="row"><span>'+r.name+'</span><span class="badge">'+r.status+'</span></div>').join('')||'Нет запусков'}
+async function updateMetrics(){
+ const projectId=workflow.project_id;
+ const runs=await api('/api/runs');if(projectId!==workflow.project_id)return;
+ const rs=runs.filter(r=>r.project_id===projectId||(projectId==='demo'&&!r.project_id));
+ latest={findings:rs[0]?.findings||[]};
+ $('#total').textContent=latest.findings.length;$('#risk').textContent=latest.findings.filter(x=>x.severity==='CRITICAL'||x.severity==='HIGH').length;$('#runs').textContent=rs.length;
+ renderFindings();const recent=$('#recent');recent.replaceChildren();
+ for(const r of rs.slice(0,4)){const row=document.createElement('div');row.className='row';row.textContent=(r.project_name||'Учебный проект')+' · '+r.name+' · '+r.status;recent.append(row)}
+ if(!rs.length)recent.textContent='Нет запусков выбранного проекта';
+}
 function visibleFindings(){const severity=$('#severityFilter').value;return latest.findings.filter(f=>(currentFilter==='all'||f.category===currentFilter)&&(severity==='all'||f.severity===severity))}
 function renderFindings(){
  const fs=visibleFindings(),container=$('#findings');container.replaceChildren();
