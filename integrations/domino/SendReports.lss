@@ -1,0 +1,82 @@
+Option Public
+Option Declare
+
+Sub Initialize
+    On Error GoTo Failed
+    Dim session As New NotesSession
+    Dim db As NotesDatabase
+    Dim settings As NotesDocument
+    Dim request As NotesHTTPRequest
+    Dim mail As NotesDocument
+    Dim body As NotesRichTextItem
+    Dim response As Variant
+    Dim ids As Variant
+    Dim ident As Variant
+    Dim recipient As String
+    Dim token As String
+    Dim dataPath As String
+    Dim fileNumber As Integer
+    Dim opened As Boolean
+
+    Set db = session.CurrentDatabase
+    Set settings = db.GetProfileDocument("GardenMailSettings")
+    recipient = Trim$(CStr(settings.GetItemValue("Recipient")(0)))
+    If Len(recipient) = 0 Then Error 1001, "Set Recipient in GardenMailSettings profile"
+    dataPath = session.GetEnvironmentString("Directory", True)
+    If Len(dataPath) = 0 Then Error 1002, "Missing Domino data directory"
+    If Right$(dataPath, 1) <> Chr$(92) Then dataPath = dataPath & Chr$(92)
+    fileNumber = FreeFile()
+    Open dataPath & "garden_scheduler.token" For Input As fileNumber
+    opened = True
+    Line Input #fileNumber, token
+    Close fileNumber
+    opened = False
+    token = Trim$(token)
+    If Len(token) < 32 Then Error 1003, "Missing scheduler token"
+
+    Set request = session.CreateHTTPRequest()
+    request.PreferStrings = True
+    request.TimeoutSec = 30
+    Call request.SetHeaderField("Authorization", "Bearer " & token)
+    Call request.SetHeaderField("Content-Type", "application/json")
+    response = request.Get("http://127.0.0.1:8000/api/domino/mail/pending")
+    If InStr(CStr(request.ResponseCode), " 200 ") = 0 Then Error 1004, "Cannot fetch pending reports"
+    If Len(Trim$(CStr(response))) = 0 Then GoTo Finished
+    ids = Split(CStr(response), Chr$(10))
+    ForAll value In ids
+        ident = Trim$(value)
+        If Len(ident) <> 32 Then Error 1005, "Invalid run identifier"
+        response = request.Get("http://127.0.0.1:8000/api/domino/mail/" & ident & "/body")
+        If InStr(CStr(request.ResponseCode), " 200 ") = 0 Then Error 1006, "Cannot fetch report"
+        Set mail = db.CreateDocument()
+        mail.Form = "Memo"
+        mail.SendTo = recipient
+        mail.Subject = "Garden audit " & ident
+        Set body = mail.CreateRichTextItem("Body")
+        Call body.AppendText(CStr(response))
+        response = request.Post("http://127.0.0.1:8000/api/domino/mail/" & ident & "/claim", "{}")
+        If InStr(CStr(request.ResponseCode), " 200 ") <> 0 Then
+            Print "SendReports: report already claimed or unavailable"
+        Else
+            Call mail.Send(False)
+            Print "SendReports: submitted to Domino Router, run " & ident
+            response = request.Post("http://127.0.0.1:8000/api/domino/mail/" & ident & "/queued", "{}")
+            If InStr(CStr(request.ResponseCode), " 200 ") = 0 Then
+                Print "SendReports: acknowledgment failed; inspect Router and delivery journal"
+            End If
+        End If
+    End ForAll
+
+Finished:
+    token = ""
+    Exit Sub
+Failed:
+    Print "SendReports failed, LotusScript error: " & CStr(Err)
+    Print "Claimed reports are not retried automatically. Inspect the delivery journal."
+    Resume Cleanup
+Cleanup:
+    On Error Resume Next
+    If opened Then Close fileNumber
+    token = ""
+    Exit Sub
+End Sub

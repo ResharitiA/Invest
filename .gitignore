@@ -6,3 +6,9 @@ __pycache__/
 garden.sqlite3
 garden.sqlite3-*
 .env
+/domino/
+*.nsf
+*.ntf
+*.id
+notes.ini
+*.exe

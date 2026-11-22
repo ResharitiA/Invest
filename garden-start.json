@@ -1,0 +1,7 @@
+{
+  "Provider": "Shugg",
+  "DominoMode": "Console",
+  "DominoDirectory": "C:\\Program Files\\HCL\\Domino",
+  "DominoDataDirectory": "C:\\Program Files\\HCL\\Domino\\Data",
+  "DominoServiceName": "HCLDominoServer(CProgramFilesHCLDominoData)"
+}

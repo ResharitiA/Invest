@@ -15,9 +15,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from scanners import ROOT, SCANNERS, texts
-from ai_helper import assess, configured
+from backend.scanners import ROOT, SCANNERS, texts
+from backend.ai_helper import assess, configured
 from contextlib import closing
+import copy
+from backend import notifications, scheduling, gmail
+import sys
 
 DB = ROOT / "garden.sqlite3"
 DEMO = ROOT / "git_org/training-main/training-project"
@@ -63,6 +66,8 @@ class Edge(BaseModel):
     source: str
     target: str
     branch: str = ""
+    source_port: int = Field(default=0, ge=0, le=19)
+    target_port: int = Field(default=0, ge=0, le=19)
 
 
 class Workflow(BaseModel):
@@ -72,7 +77,15 @@ class Workflow(BaseModel):
     edges: list[Edge] = Field(default_factory=list, max_length=300)
 
 
-TYPES = ["manual", "repository", "secrets", "sca", "sast", "merge", "if", "ai"]
+TYPES = ["manual", "schedule", "repository", "secrets", "sca", "sast", "merge", "if", "ai", "webhook"]
+
+
+def public_flow(flow):
+    value = copy.deepcopy(flow)
+    for node in value["nodes"]:
+        if node["type"] == "webhook":
+            node["config"] = notifications.public(node["config"])
+    return value
 
 
 def order(flow):
@@ -96,7 +109,27 @@ def order(flow):
         if key in seen:
             raise ValueError("Соединение уже существует")
         seen.add(key)
+    triggers = [n for n in nodes.values() if n["type"] == "schedule"]
+    if len(triggers) > 1:
+        raise ValueError("Разрешено одно расписание на workflow")
+    for node in triggers:
+        scheduling.config(node["config"])
+        if any(e["target"] == node["id"] for e in edges):
+            raise ValueError("Schedule Trigger не имеет входов")
+        if not any(e["source"] == node["id"] for e in edges):
+            raise ValueError("Подключите выход Schedule Trigger")
+        reachable = {node["id"]}
+        for _ in nodes:
+            reachable.update(e["target"] for e in edges if e["source"] in reachable)
+        if reachable != set(nodes):
+            raise ValueError("Все ноды должны быть доступны от Schedule Trigger; замените Manual Trigger")
     for node in nodes.values():
+        if node["type"] == "webhook":
+            notifications.validate(notifications.public(node["config"]))
+            if any(e["source"] == node["id"] for e in edges):
+                raise ValueError("Webhook должен быть конечной нодой")
+            if not any(e["target"] == node["id"] for e in edges):
+                raise ValueError("Подключите вход Webhook к графу")
         if node["type"] == "if":
             minimum = node.get("config", {}).get("minimum", 1)
             if type(minimum) is not int or minimum < 0:
@@ -123,6 +156,7 @@ async def lifespan(app):
         save("projects", dict(id="demo", name="Repair Desk · учебный проект", source="organizer"))
     if not all_of("workflows"):
         save("workflows", default_flow())
+    scheduling.recover(sys.modules[__name__])
     yield
 
 
@@ -131,14 +165,14 @@ app = FastAPI(title="Garden · Security Workflows", lifespan=lifespan)
 
 @app.get("/")
 def index():
-    return FileResponse(ROOT / "index.html")
+    return FileResponse(ROOT / "frontend/index.html")
 
 
 @app.get("/assets/{name}")
 def helper_asset(name: str):
     if name not in {"Helper1.obj", "Helper1.mtl", "helper.js"}:
         raise HTTPException(404)
-    return FileResponse(ROOT / ("helper.js" if name == "helper.js" else "3d/" + name), headers={"Cache-Control": "no-store"})
+    return FileResponse(ROOT / ("frontend/helper.js" if name == "helper.js" else "3d/" + name), headers={"Cache-Control": "no-store"})
 
 
 class HelperQuestion(BaseModel):
@@ -174,6 +208,26 @@ def projects():
 @app.post("/api/projects")
 def create_project(body: Project):
     return save("projects", dict(id=uuid.uuid4().hex, name=body.name, source="empty"))
+
+
+@app.delete("/api/projects/{ident}")
+def delete_project(ident: str):
+    with closing(connection()) as c, c:
+        c.execute("BEGIN IMMEDIATE")
+        if not c.execute("SELECT 1 FROM objects WHERE kind='projects' AND id=?", (ident,)).fetchone():
+            raise HTTPException(404, "Проект не найден")
+        runs = [json.loads(row[0]) for row in c.execute("SELECT data FROM objects WHERE kind='runs'")]
+        if any(r.get("project_id") == ident and r.get("status") == "running" and not r.get("finished") for r in runs):
+            raise HTTPException(409, "Дождитесь завершения аудита проекта")
+        scheduling.tables(c)
+        for kind in ("workflows", "sources"):
+            for object_id, raw in c.execute("SELECT id,data FROM objects WHERE kind=?", (kind,)).fetchall():
+                if json.loads(raw).get("project_id") == ident:
+                    if kind == "workflows":
+                        c.execute("DELETE FROM schedules WHERE workflow_id=?", (object_id,))
+                    c.execute("DELETE FROM objects WHERE kind=? AND id=?", (kind, object_id))
+        c.execute("DELETE FROM objects WHERE kind='projects' AND id=?", (ident,))
+    return {"deleted": ident}
 
 
 @app.get("/api/projects/{ident}")
@@ -257,7 +311,7 @@ async def upload_project(request: Request, project_id: str, filename: str):
 
 @app.get("/api/workflows")
 def workflows():
-    return all_of("workflows")
+    return [public_flow(f) for f in all_of("workflows")]
 
 
 @app.get("/api/nodes")
@@ -265,9 +319,89 @@ def nodes():
     return TYPES
 
 
+class WorkflowRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000)
+    project_id: str = "demo"
+
+
+class CreatorTurn(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    answer: str = Field(min_length=1, max_length=12000)
+
+
+class CreatorQuestion(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    workflow: Workflow
+    run_id: str | None = None
+    history: list[CreatorTurn] = Field(default_factory=list, max_length=12)
+
+
+@app.post("/api/workflows/assistant")
+async def creator_answer(body: CreatorQuestion):
+    if not body.question.strip():
+        raise HTTPException(422, "Введите вопрос")
+    run = get("runs", body.run_id) if body.run_id else None
+    context = {
+        "workflow": {"name": body.workflow.name,
+                     "nodes": [{"id": n.id, "type": n.type} for n in body.workflow.nodes],
+                     "edges": [e.model_dump() for e in body.workflow.edges]},
+        "audit": {"name": run["name"], "status": run["status"],
+                  "project": run.get("project_name"), "started": run["started"]} if run else None,
+    }
+    history = [{"question": t.question, "answer": {"summary": t.answer}} for t in body.history]
+    try:
+        return await assess(run.get("findings", []) if run else [], body.question,
+                            history=history, creator_context=context)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.post("/api/workflows/generate")
+async def generate_workflow(body: WorkflowRequest):
+    get("projects", body.project_id)
+    if not body.prompt.strip():
+        raise HTTPException(422, "Опишите workflow")
+    try:
+        raw = await assess([], body.prompt, workflow_schema=Workflow.model_json_schema())
+        if isinstance(raw, dict) and isinstance(raw.get("error"), str):
+            raise ValueError(raw["error"])
+        draft = Workflow.model_validate(raw).model_dump()
+        draft["project_id"] = body.project_id
+        for node in draft["nodes"]:
+            if node["type"] == "schedule":
+                node["config"]["enabled"] = False
+            if node["type"] == "webhook":
+                node["config"] = {k: v for k, v in node["config"].items()
+                                  if k in {"url", "method", "timeout", "message"}}
+        order(draft)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, "Не удалось создать схему: " + str(exc))
+    return draft
+
+
+@app.get("/assets/creator/{name}")
+def creator_asset(name: str):
+    if name not in {"I_mast_help_zap.mtl.obj", "I_mast_help_zap.mtl.mtl",
+                    "Снимок экрана 2026-11-21 142646.png"}:
+        raise HTTPException(404)
+    return FileResponse(ROOT / "3d" / "creater" / name)
+
+
 @app.post("/api/workflows")
 def create_workflow(body: Workflow):
     return update_workflow(uuid.uuid4().hex, body)
+
+
+@app.delete("/api/workflows/{ident}")
+def delete_workflow(ident: str):
+    with closing(connection()) as c, c:
+        c.execute("BEGIN IMMEDIATE")
+        if not c.execute("SELECT 1 FROM objects WHERE kind='workflows' AND id=?", (ident,)).fetchone():
+            raise HTTPException(404, "Сборка не найдена")
+        scheduling.tables(c)
+        c.execute("DELETE FROM schedules WHERE workflow_id=?", (ident,))
+        c.execute("DELETE FROM objects WHERE kind='workflows' AND id=?", (ident,))
+    return {"deleted": ident}
 
 
 @app.put("/api/workflows/{ident}")
@@ -275,15 +409,54 @@ def update_workflow(ident: str, body: Workflow):
     value = dict(id=ident, **body.model_dump())
     get("projects", value["project_id"])
     try:
+        previous = next((f for f in all_of("workflows") if f["id"] == ident), {})
+        old_nodes = {n["id"]: n for n in previous.get("nodes", [])}
+        for node in value["nodes"]:
+            if node["type"] == "webhook":
+                node["config"] = notifications.protect(node["config"], old_nodes.get(node["id"], {}).get("config"))
         order(value)
-    except ValueError as e:
-        raise HTTPException(422, str(e))
-    return save("workflows", value)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    with closing(connection()) as c, c:
+        c.execute("BEGIN IMMEDIATE")
+        scheduling.sync(c, value)
+        c.execute("INSERT OR REPLACE INTO objects VALUES (?,?,?)", ("workflows", ident, json.dumps(value, ensure_ascii=False)))
+    return public_flow(value)
+
+
+class NotificationTest(BaseModel):
+    workflow_id: str
+    node_id: str
+
+
+@app.post("/api/notifications/test")
+async def test_notification(body: NotificationTest):
+    flow = get("workflows", body.workflow_id)
+    node = next((n for n in flow["nodes"] if n["id"] == body.node_id and n["type"] == "webhook"), None)
+    if node is None:
+        raise HTTPException(404, "Webhook не найден")
+    result = await asyncio.to_thread(notifications.send, node["config"], {"test": True, "workflow": flow["name"]})
+    save("notification_tests", dict(id=uuid.uuid4().hex, workflow_id=body.workflow_id, node_id=body.node_id, started=time.time(), **result))
+    return result
 
 
 @app.get("/api/runs")
 def runs():
     return sorted(all_of("runs"), key=lambda r: r["started"], reverse=True)
+
+
+@app.delete("/api/runs/{ident}")
+def delete_run(ident: str):
+    with closing(connection()) as c, c:
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT data FROM objects WHERE kind='runs' AND id=?", (ident,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Аудит не найден")
+        run = json.loads(row[0])
+        if run.get("status") == "running":
+            raise HTTPException(409, "Дождитесь завершения аудита")
+        c.execute("DELETE FROM objects WHERE kind='runs' AND id=?", (ident,))
+    return {"deleted": ident}
 
 
 @app.get("/api/runs/{ident}")
@@ -335,8 +508,20 @@ async def execute(run, flow):
                 run.setdefault("ai", {})[ident] = payload["ai"]
             outputs[ident] = payload
             run["findings"] = list({f["id"]:f for f in run["findings"]+payload["findings"]}.values())
-            run["nodes"][ident] = "success"
+            run["nodes"][ident] = "waiting" if kind == "webhook" else "success"
             save("runs", run)
+        deliveries = run.setdefault("notifications", {})
+        for node in flow["nodes"]:
+            if node["type"] != "webhook" or node["id"] not in outputs:
+                continue
+            run["nodes"][node["id"]] = "running"
+            save("runs", run)
+            delivery = await asyncio.to_thread(notifications.send, node["config"], notifications.report(run))
+            deliveries[node["id"]] = delivery
+            run["nodes"][node["id"]] = delivery["status"]
+            save("runs", run)
+        if any(d["status"] == "failed" for d in deliveries.values()):
+            raise ValueError("Не удалось доставить Webhook; подробности в журнале доставки")
         run["status"] = "success"
     except Exception as e:
         run["status"] = "failed"
@@ -348,6 +533,10 @@ async def execute(run, flow):
                 run["nodes"][ident] = "skipped"
     finally:
         run["finished"] = time.time()
+        save("runs", run)
+        run["email"] = {"status": "sending"}
+        save("runs", run)
+        run["email"] = await asyncio.to_thread(gmail.send, run)
         save("runs", run)
 
 
@@ -362,16 +551,27 @@ async def start(ident: str):
     except ValueError as exc:
         raise HTTPException(422, str(exc))
     project = get("projects", flow["project_id"])
+    run = new_run(flow, project)
+    save("runs", run)
+    launch(run, flow)
+    return run
+
+
+def new_run(flow, project):
     if project["source"] == "empty":
         raise HTTPException(422, "Сначала загрузите исходники проекта")
-    run = dict(id=uuid.uuid4().hex, workflow_id=ident, project_id=project["id"], project_name=project["name"],
-               source=project["source"], source_id=project.get("source_id"), name=flow["name"], started=time.time(), status="running",
-               nodes={n["id"]: "waiting" for n in flow["nodes"]}, findings=[], error=None)
-    save("runs", run)
+    return dict(id=uuid.uuid4().hex, workflow_id=flow["id"], project_id=project["id"], project_name=project["name"],
+                source=project["source"], source_id=project.get("source_id"), name=flow["name"], started=time.time(), status="running",
+                nodes={n["id"]: "waiting" for n in flow["nodes"]}, findings=[], error=None)
+
+
+def launch(run, flow):
     task = asyncio.create_task(execute(run, flow))
     tasks.add(task)
     task.add_done_callback(tasks.discard)
-    return run
+
+
+scheduling.install(sys.modules[__name__])
 
 
 @app.get("/api/runs/{ident}/events")
