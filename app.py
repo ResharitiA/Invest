@@ -324,6 +324,38 @@ class WorkflowRequest(BaseModel):
     project_id: str = "demo"
 
 
+class CreatorTurn(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    answer: str = Field(min_length=1, max_length=12000)
+
+
+class CreatorQuestion(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    workflow: Workflow
+    run_id: str | None = None
+    history: list[CreatorTurn] = Field(default_factory=list, max_length=12)
+
+
+@app.post("/api/workflows/assistant")
+async def creator_answer(body: CreatorQuestion):
+    if not body.question.strip():
+        raise HTTPException(422, "Введите вопрос")
+    run = get("runs", body.run_id) if body.run_id else None
+    context = {
+        "workflow": {"name": body.workflow.name,
+                     "nodes": [{"id": n.id, "type": n.type} for n in body.workflow.nodes],
+                     "edges": [e.model_dump() for e in body.workflow.edges]},
+        "audit": {"name": run["name"], "status": run["status"],
+                  "project": run.get("project_name"), "started": run["started"]} if run else None,
+    }
+    history = [{"question": t.question, "answer": {"summary": t.answer}} for t in body.history]
+    try:
+        return await assess(run.get("findings", []) if run else [], body.question,
+                            history=history, creator_context=context)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+
 @app.post("/api/workflows/generate")
 async def generate_workflow(body: WorkflowRequest):
     get("projects", body.project_id)
@@ -331,6 +363,8 @@ async def generate_workflow(body: WorkflowRequest):
         raise HTTPException(422, "Опишите workflow")
     try:
         raw = await assess([], body.prompt, workflow_schema=Workflow.model_json_schema())
+        if isinstance(raw, dict) and isinstance(raw.get("error"), str):
+            raise ValueError(raw["error"])
         draft = Workflow.model_validate(raw).model_dump()
         draft["project_id"] = body.project_id
         for node in draft["nodes"]:

@@ -75,6 +75,9 @@ input[type=file]::file-selector-button{background:#cfE3f9;color:#203b59;border:1
 :root[data-theme] .helper-message:not(.helper-question){background:rgba(244,249,255,.78)!important;color:#1b304b!important}
 :root[data-theme] .helper-toggle span{color:#243f60!important}
 :root[data-theme] #creatorForm textarea{background:rgba(244,249,255,.85)!important;color:#1b304b!important}
+.creator-chat{margin-top:18px;padding-top:18px;border-top:1px solid #7898b655;color:#1b304b;min-width:0}.creator-chat h2{margin-bottom:8px}.creator-chat .toolbar{flex-wrap:wrap}.creator-chat select{max-width:100%}#creatorMessages{max-height:280px;overflow:auto;overflow-wrap:anywhere;padding:10px;background:#eff7ff55;border:1px solid #bdd5e788;border-radius:12px;margin:12px 0}.creator-message{padding:12px;margin:8px 0;background:#f2f8ffb8;border-radius:10px;white-space:pre-wrap}.creator-message strong{display:block;margin-bottom:6px;color:#355b85}.creator-message.creator-user{margin-left:24px;background:#584776;color:white}.creator-user strong{color:white}#creatorChatForm{display:flex;gap:8px;flex-wrap:wrap}#creatorQuestion{flex:1;min-width:180px}#creatorChatStatus{min-height:20px;font-size:13px}
+.creator-panel{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}.creator-panel>canvas{flex:0 0 140px}.creator-panel>.creator-chat{flex:1;min-width:0;margin-top:0;padding-top:0;border-top:0}#creatorQuestion{width:100%;flex-basis:100%;resize:vertical;min-height:64px}#creatorChatForm{align-items:center}@media(max-width:600px){.creator-panel>.creator-chat{flex-basis:100%}}
+.creator-conversation{background:#eff7ff77;border:1px solid #bdd5e799;border-radius:12px;overflow:hidden;margin:12px 0}.creator-conversation #creatorMessages{background:transparent;border:0;border-radius:0;margin:0;padding:12px;min-height:100px}.creator-conversation #creatorChatForm{padding:12px;margin:0;border-top:1px solid #9ab7d044}.creator-conversation #creatorQuestion{background:transparent!important;border:0!important;box-shadow:none;outline-offset:0}
 </style><script>
 (function(){let theme=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';try{theme=localStorage.getItem('garden-theme')||theme}catch(e){}document.documentElement.dataset.theme=theme==='light'?'light':'dark'})()
 </script></head><body><div class="app"><aside class="side"><div class="brand"><span>G</span>arden</div><nav class="nav"><button data-page="dashboard" class="active">▦ &nbsp; Dashboard</button><button data-page="editor">◇ &nbsp; Workflow Editor</button><button data-page="reports">⚠ &nbsp; Security Reports</button><button data-page="history">◷ &nbsp; Executions</button></nav></aside><main class="main">
@@ -90,9 +93,9 @@ function updateThemeToggle(){themeToggle.textContent=document.documentElement.da
 themeToggle.onclick=()=>{const theme=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=theme;try{localStorage.setItem('garden-theme',theme)}catch(e){}updateThemeToggle()};
 updateThemeToggle();$('.brand').after(themeToggle);
 async function api(url,opt){const r=await fetch(url,opt);if(!r.ok){if(r.status===405&&opt?.method==='DELETE')throw Error('Запущен старый backend без удаления. Перезапустите .\\start-gmail.ps1 и обновите страницу Ctrl+F5.');let detail;try{detail=(await r.json()).detail}catch(e){}throw Error(typeof detail==='string'?detail:'Ошибка сервера: HTTP '+r.status)}return r.json()}
-function show(page){document.querySelectorAll('main section').forEach(x=>x.classList.toggle('hidden',x.id!==page));document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.page===page));if(page==='reports')refreshReportAudits().catch(e=>{$('#reportNotice').textContent=e.message});if(page==='history')loadHistory()}
+function show(page){if(!['dashboard','editor','reports','history','projects'].includes(page))page='dashboard';history.replaceState(null,'','#'+page);document.querySelectorAll('main section').forEach(x=>x.classList.toggle('hidden',x.id!==page));document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.page===page));if(page==='reports')refreshReportAudits().catch(e=>{$('#reportNotice').textContent=e.message});if(page==='history')loadHistory()}
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page));
-async function load(){try{[workflow]=await api('/api/workflows');workflow??={name:'Новая сборка',project_id:'',nodes:[{id:'manual',type:'manual',x:60,y:160,config:{}}],edges:[]};renderCanvas();setupProjects();await refreshProjects();loadHistory();await updateMetrics()}catch(e){alert(e.message)}}
+async function load(){try{[workflow]=await api('/api/workflows');workflow??={name:'Новая сборка',project_id:'',nodes:[{id:'manual',type:'manual',x:60,y:160,config:{}}],edges:[]};renderCanvas();setupProjects();show(location.hash.slice(1)||'dashboard');await refreshProjects();loadHistory();await updateMetrics()}catch(e){alert(e.message)}}
 let projectList=[];
 function setupProjects(){
  const nav=document.createElement('button');nav.dataset.page='projects';nav.textContent='Projects';nav.onclick=()=>{show('projects');refreshProjects().catch(e=>projectNotice(e.message))};$('.nav').append(nav);
@@ -218,9 +221,10 @@ function setupEditor(){
  newSave.onsubmit=async e=>{e.preventDefault();if(executing)return;const title=saveName.value.trim();if(!title){saveName.focus();return}newButton.disabled=true;const previousName=workflow.name;try{workflow.name=title;await saveWorkflow(true);saveName.value=''}catch(error){workflow.name=previousName;editorMessage(error.message)}finally{newButton.disabled=false}};
 
  const creator=document.createElement('div');creator.className='panel';creator.style.marginBottom='14px';
- creator.innerHTML='<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><canvas id="creatorModel" width="140" height="140" aria-label="3D помощник конструктора"></canvas><form id="creatorForm" style="flex:1;min-width:220px"><label for="creatorPrompt">Создать сборку с AI</label><textarea id="creatorPrompt" maxlength="4000" required placeholder="Например: проверка секретов, SCA и SAST, затем объединение и AI-анализ" style="display:block;width:100%;min-height:70px;margin:8px 0;background:#182943;color:white;padding:10px"></textarea><button class="btn">Создать черновик</button><span id="creatorStatus" role="status" style="margin-left:10px"></span></form></div>';
+ creator.classList.add('creator-panel');
+ creator.innerHTML='<canvas id="creatorModel" width="140" height="140" aria-label="3D помощник конструктора"></canvas>';
+ setupCreatorChat(creator);
  toolbar.after(creator);
- $('#creatorForm').onsubmit=async e=>{e.preventDefault();if(executing)return;const button=e.target.querySelector('button'),status=$('#creatorStatus');button.disabled=true;status.textContent='Создаю схему…';const original=workflow,project=workflow.project_id;try{const draft=await api('/api/workflows/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:$('#creatorPrompt').value,project_id:project})});if(executing||workflow!==original){status.textContent='Редактор изменился. Повторите запрос.';return}if(!confirm('Открыть созданный черновик? Текущие несохранённые изменения будут потеряны.')){status.textContent='Черновик не применён';return}workflow=draft;selection=null;nodeStates={};builds.value='';view={x:30,y:30,zoom:.7};renderCanvas();renderSettings();changed();status.textContent='Черновик готов. Проверьте и сохраните сборку.'}catch(error){status.textContent=error.message}finally{button.disabled=false}};
  refreshBuilds().catch(e=>editorMessage(e.message));
  const notice=document.createElement('div');notice.id='editorNotice';notice.setAttribute('role','status');
  const settings=document.createElement('div');settings.id='nodeSettings';
@@ -500,6 +504,37 @@ function addNode(type){
  selection={kind:'node',id};changed();renderCanvas();renderSettings();
 }
 function downloadReport(){if(!reportAuditId)return;const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({findings:reportFindings()},null,2)],{type:'application/json'}));a.download='security-report-'+reportAuditId+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function setupCreatorChat(container){
+ const chat=document.createElement('div');chat.className='creator-chat';
+ chat.innerHTML='<h2>Архитектор · соберём идею вместе</h2><div class="toolbar"><label class="creator-audit-label">Аудит для разбора <select id="creatorAudit"><option value="">Без отчёта</option></select></label></div><div id="creatorMessages" role="log" aria-label="Переписка с конструктором"></div><div class="toolbar"><button class="btn secondary" type="button" data-question="Каких нод не хватает моей схеме и почему?">Посоветуй ноды</button><button class="btn secondary" type="button" data-question="Разбери выбранный аудит: что проверить первым и как улучшить workflow?">Разбери отчёт</button></div><form id="creatorChatForm"><textarea id="creatorQuestion" maxlength="4000" required rows="2" aria-label="Сообщение конструктору"></textarea><button class="btn" type="submit">Отправить</button><button class="btn secondary" type="button" data-question="Проверь текущую сборку: оцени связи и состав нод, объясни проблемы и предложи улучшения. Не запускай аудит.">Проверить сборку</button></form><p id="creatorChatStatus" role="status"></p>';
+ container.append(chat);
+ const audit=chat.querySelector('#creatorAudit'),messages=chat.querySelector('#creatorMessages'),status=chat.querySelector('#creatorChatStatus'),form=chat.querySelector('form'),input=chat.querySelector('#creatorQuestion');
+ const conversation=document.createElement('div');conversation.className='creator-conversation';messages.before(conversation);conversation.append(messages,form);
+ let history=[],busy=false;
+ const append=(title,text)=>{const item=document.createElement('div');item.className='creator-message'+(title==='Вы'?' creator-user':'');const label=document.createElement('strong'),body=document.createElement('div');label.textContent=title;body.textContent=text;item.append(label,body);messages.append(item);messages.scrollTop=messages.scrollHeight};
+ const reset=()=>{history=[];messages.replaceChildren();append('Архитектор','С чего начнём? Могу объяснить текущую схему, предложить ноды или разобрать выбранный отчёт. Советы не меняют сборку автоматически.');status.textContent=''};
+ reset();
+ async function reports(){
+  const runs=await api('/api/runs'),previous=audit.value||reportAuditId;
+  audit.replaceChildren(new Option('Без отчёта',''));
+  for(const run of runs){audit.add(new Option(new Date(run.started*1000).toLocaleString()+' · '+(run.project_name||'Проект')+' · '+run.name,run.id))}
+  audit.value=runs.some(r=>r.id===previous)?previous:'';
+ }
+ reports().catch(e=>status.textContent=e.message);
+ audit.onchange=()=>reset();
+ chat.querySelectorAll('[data-question]').forEach(button=>button.onclick=()=>{if(busy)return;input.value=button.dataset.question;form.requestSubmit()});
+ form.onsubmit=async e=>{
+  e.preventDefault();if(busy)return;const question=input.value.trim();if(!question)return;
+  if(question.includes('выбранный аудит')&&!audit.value){status.textContent='Выберите отчёт для разбора.';return}
+  busy=true;chat.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=true);append('Вы',question);status.textContent='Обдумываю схему…';
+  try{
+   const safe={name:workflow.name,project_id:workflow.project_id,nodes:workflow.nodes.map(n=>({id:n.id,type:n.type})),edges:workflow.edges};
+   const answer=await api('/api/workflows/assistant',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,workflow:safe,run_id:audit.value||null,history:history.slice(-12)})});
+   append('Архитектор',answer.summary);history.push({question,answer:answer.summary.slice(0,12000)});input.value='';status.textContent='';
+  }catch(error){status.textContent=error.message}
+  finally{busy=false;chat.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=false)}
+ };
+}
 async function creatorModel(){
  try{
   const THREE=await import('https://esm.sh/three@0.170.0');
@@ -513,6 +548,20 @@ async function creatorModel(){
   const materials=await new MTLLoader().setPath('/assets/creator/').loadAsync('I_mast_help_zap.mtl.mtl');materials.preload();
   const object=await new OBJLoader().setMaterials(materials).loadAsync('/assets/creator/I_mast_help_zap.mtl.obj');
   const box=new THREE.Box3().setFromObject(object),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),scale=2/Math.max(size.x,size.y,size.z);
+  object.traverse(mesh=>{
+   if(!mesh.isMesh)return;
+   const original=Array.isArray(mesh.material)?mesh.material:[mesh.material];
+   if(!original.some(material=>material.name==='Material.008'))return;
+   const positions=mesh.geometry.attributes.position,colors=[];
+   const blue=new THREE.Color('#a8d8f0'),violet=new THREE.Color('#c5b8ed');
+   for(let i=0;i<positions.count;i++){
+    const t=THREE.MathUtils.clamp((positions.getY(i)-box.min.y)/Math.max(size.y,.001),0,1);
+    const color=blue.clone().lerp(violet,t);colors.push(color.r,color.g,color.b);
+   }
+   mesh.geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+   const replace=material=>material.name==='Material.008'?new THREE.MeshPhysicalMaterial({name:'Creator frosted glass',vertexColors:true,color:0xffffff,transparent:true,opacity:.24,roughness:.65,metalness:0,clearcoat:.15,depthWrite:false}):material;
+   mesh.material=Array.isArray(mesh.material)?original.map(replace):replace(mesh.material);
+  });
   object.scale.setScalar(scale);object.position.copy(center).multiplyScalar(-scale);scene.add(object);camera.position.z=4.5;
   renderer.setAnimationLoop(()=>{if(!$('#editor').classList.contains('hidden'))renderer.render(scene,camera)});
  }catch(e){const canvas=$('#creatorModel');if(canvas)canvas.hidden=true;console.warn('Creator model:',e)}
