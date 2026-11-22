@@ -1,4 +1,6 @@
 # Garden · Security Workflows
+<img width="715" height="339" alt="изображение" src="https://github.com/user-attachments/assets/6e437466-3de6-495c-95de-32911aba00d3" />
+
 
 **Соберите проверку безопасности как схему — от исходников до отчёта.**
 
