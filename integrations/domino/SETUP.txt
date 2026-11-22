@@ -1,0 +1,91 @@
+GARDEN / DOMINO — настройки и восстановление
+
+Состояние: исходники подготовлены. Новая NSF и установка/компиляция агентов
+ещё НЕ выполнены: Notes запрашивает пароль admin.id. Пароли здесь не хранить.
+Старая garden_scheduler.nsf сохранена. Domino переустанавливать не требуется.
+
+Конфигурация запуска: garden-start.json в корне проекта.
+Сервер: rehe/pain. Домен: PAIN.
+Каталог Domino: C:\Program Files\HCL\Domino
+Данные: C:\Program Files\HCL\Domino\Data
+Новая база: garden_scheduler_v2.nsf (создать на сервере, не локально).
+Название: Garden Scheduler v2.
+
+1. Открыть HCL Domino Designer, войти своим Notes ID.
+File → Application → New: Server rehe/pain, Blank application,
+Filename garden_scheduler_v2.nsf. Существующую базу не заменять.
+Если сервер недоступен — сначала проверить подключение/Connection document,
+имя сервера и каталог Directory в реально запущенном notes.ini.
+Само наличие NSF на диске не подтверждает доступ через NRPC.
+
+2. ACL новой базы:
+Anonymous и -Default-: No Access.
+Администратор и сервер rehe/pain: необходимые права управления базой.
+Не выдавать Anonymous права ради диагностики.
+
+3. Code → Agents: создать два LotusScript-агента.
+Исходники из этой папки вставлять в соответствующие секции Designer:
+Option Public / Option Declare — (Options), Sub Initialize — Initialize.
+Сохранить, скомпилировать и подписать разрешённым Notes ID.
+
+GardenConnectionTest:
+Исходник GardenConnectionTest.lss.
+HTTP GET http://127.0.0.1:8000/api/nodes
+Ручной запуск: расписание Never; не включать периодическое выполнение.
+Target: None. Runtime security: 2. Allow restricted operations.
+Команда в консоли Domino:
+tell amgr run "garden_scheduler_v2.nsf" 'GardenConnectionTest'
+Ожидается HTTP 200 и список типов нод.
+
+SchedulerTick:
+Исходник SchedulerTick.lss.
+POST http://127.0.0.1:8000/api/domino/tick
+Тело {}. Авторизация Bearer; токен читает из Directory\garden_scheduler.token.
+Target: None. Runtime security: 2. Allow restricted operations.
+Schedule: More than once a day, каждые 5 минут, All day,
+каждый день, сервер rehe/pain, Enabled.
+Подписант: сверить фактическое имя Notes ID, ранее Administrator resha/pain.
+Server Document → Security → Programmability Restrictions:
+разрешить этому конкретному подписанту restricted LotusScript/Java agents.
+Не включать широкие разрешения для всех пользователей.
+
+4. Токен настраивается один раз из PowerShell проекта:
+.\integrations\domino\setup-token.ps1
+Скрипт запрашивает UAC. Не печатать и не коммитить токен.
+При существующих разных токенах скрипт прекращает работу.
+Garden читает локальный токен из LOCALAPPDATA\Garden\domino-token.txt,
+Domino — из каталога Data. Проверить права учётной записи консольного сервера.
+Не запускать ротацию токена, если работающая интеграция ещё использует старый.
+
+5. Одна команда запуска панели, окна backend/его лога и журнала Domino:
+.\start-gmail.ps1
+Ввод Gmail app password — скрытый, только в терминале.
+В консоли Domino при необходимости ввести пароль server.id.
+Без почты: .\start-garden.ps1
+Backend пишет garden-panel.log при новом запуске.
+При переиспользовании backend открывается show-panel-log.ps1.
+После изменения Python-кода использовать start-gmail.ps1 для перезапуска.
+Закрытие окна работающего backend остановит API; отдельный viewer — только просмотр.
+
+6. В живой консоли Domino выполнить:
+start consolelog
+tell amgr schedule
+При отсутствии Agent Manager: load amgr.
+Просмотр файла: show-domino-log.ps1 (запускатель открывает его автоматически).
+Файл: Data\IBM_TECHNICAL_SUPPORT\console.log.
+Если время файла старое — это НЕ живой журнал; проверить start consolelog
+и фактический Directory. Не считать старую запись доказательством работы.
+
+7. Приёмка:
+- API /api/nodes отвечает.
+- Ручной GardenConnectionTest вернул 200.
+- Ручной SchedulerTick вернул 200 и JSON dispatches.
+- tell amgr schedule показывает SchedulerTick в новой базе.
+- Подтвердить минимум два последовательных автоматических запуска через 5 минут.
+Пустые dispatches допустимы, когда заданий нет.
+Перед включением нового SchedulerTick отключить старый SchedulerTick
+в garden_scheduler.nsf, чтобы не оставлять два независимых тикера.
+SendReports.lss не устанавливать: почта идёт через Gmail backend.
+
+Новая база, права, подпись, расписание и реальное выполнение требуют проверки
+в Designer/консоли. Подготовленные файлы сами по себе не устанавливают агентов.

@@ -12,3 +12,5 @@ garden.sqlite3-*
 *.id
 notes.ini
 *.exe
+/garden-panel.log
+*.token

@@ -112,6 +112,8 @@ if (-not (Test-Garden)) {
         "Local" { "& '$($PSScriptRoot.Replace("'", "''"))\start-local.ps1'" }
         "Current" { "& '$($PSScriptRoot.Replace("'", "''"))\.venv\Scripts\python.exe' -m uvicorn app:app --host 127.0.0.1 --port 8000" }
     }
+    $panelLog = Join-Path $PSScriptRoot "garden-panel.log"
+    $childCommand = "Start-Transcript -LiteralPath '" + $panelLog.Replace("'", "''") + "' -Append | Out-Null; try { " + $childCommand + " } finally { Stop-Transcript | Out-Null }"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childCommand))
     $backend = Start-Process powershell.exe -WorkingDirectory $PSScriptRoot -ArgumentList @("-NoProfile", "-NoExit", "-EncodedCommand", $encoded) -PassThru
     $deadline = (Get-Date).AddSeconds(120)
@@ -128,11 +130,15 @@ if ($backend) {
 } else {
     Write-Host "Existing Garden backend reused; new environment settings were not applied. Use start-gmail.ps1 to restart with Gmail settings."
 }
-if ($config.DominoMode -eq "Service" -and -not $NoDominoLog -and -not $CheckOnly) {
+if (-not $CheckOnly -and -not $backend) {
+    $panelViewer = Join-Path $PSScriptRoot "show-panel-log.ps1"
+    Start-Process powershell.exe -WorkingDirectory $PSScriptRoot -ArgumentList @("-NoProfile", "-NoExit", "-File", ('"' + $panelViewer + '"')) | Out-Null
+}
+if (-not $NoDominoLog -and -not $CheckOnly) {
     try {
         $viewer = Join-Path $PSScriptRoot "show-domino-log.ps1"
         if (-not (Test-Path -LiteralPath $viewer)) { throw "Missing log viewer: $viewer" }
-        $logCommand = "& '" + $viewer.Replace("'", "''") + "'"
+        $logCommand = "& '" + $viewer.Replace("'", "''") + "' -DominoDataDirectory '" + $config.DominoDataDirectory.Replace("'", "''") + "'"
         $logEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($logCommand))
         Start-Process powershell.exe -Verb RunAs -ArgumentList @("-NoProfile", "-NoExit", "-EncodedCommand", $logEncoded) | Out-Null
     } catch {

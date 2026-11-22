@@ -1,12 +1,13 @@
 [CmdletBinding()]
 param(
     [string]$DominoDirectory = "C:\Program Files\HCL\Domino",
+    [string]$DominoDataDirectory,
     [switch]$Snapshot
 )
 
 $ErrorActionPreference = "Stop"
 $Host.UI.RawUI.WindowTitle = "Domino server log"
-$dataDirectory = Join-Path $DominoDirectory "Data"
+$dataDirectory = if ($DominoDataDirectory) { $DominoDataDirectory } else { Join-Path $DominoDirectory "Data" }
 $logPath = Join-Path $dataDirectory "IBM_TECHNICAL_SUPPORT\console.log"
 if (-not (Get-Process -Name nserver -ErrorAction SilentlyContinue)) {
     throw "Domino is not running. Start it with start-garden.ps1 first."

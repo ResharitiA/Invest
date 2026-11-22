@@ -13,12 +13,14 @@ def send(run):
     message = EmailMessage()
     message["From"] = sender
     message["To"] = recipient
-    message["Subject"] = "Garden audit " + run["id"] + ": " + run["status"]
+    message["Subject"] = "[Аудит] Garden " + run["id"] + ": " + run["status"]
     message["Message-ID"] = "<garden-" + run["id"] + "@gmail.com>"
     counts = {level: sum(f.get("severity") == level for f in run["findings"])
               for level in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")}
     message.set_content("\n".join([
-        "Garden security audit",
+        "Аудит безопасности Garden",
+        *(["Источник запуска: планировщик Garden (Domino / агент SchedulerTick)."]
+          if run.get("trigger") == "schedule" else []),
         "Run: " + run["id"],
         "Status: " + run["status"],
         "Findings: " + str(len(run["findings"])),
