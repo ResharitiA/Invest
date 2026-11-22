@@ -19,7 +19,8 @@ from backend.scanners import ROOT, SCANNERS, texts
 from backend.ai_helper import assess, configured
 from contextlib import closing
 import copy
-from backend import notifications
+from backend import notifications, scheduling
+import sys
 
 DB = ROOT / "garden.sqlite3"
 DEMO = ROOT / "git_org/training-main/training-project"
@@ -74,7 +75,7 @@ class Workflow(BaseModel):
     edges: list[Edge] = Field(default_factory=list, max_length=300)
 
 
-TYPES = ["manual", "repository", "secrets", "sca", "sast", "merge", "if", "ai", "webhook"]
+TYPES = ["manual", "schedule", "repository", "secrets", "sca", "sast", "merge", "if", "ai", "webhook"]
 
 
 def public_flow(flow):
@@ -106,6 +107,20 @@ def order(flow):
         if key in seen:
             raise ValueError("Соединение уже существует")
         seen.add(key)
+    triggers = [n for n in nodes.values() if n["type"] == "schedule"]
+    if len(triggers) > 1:
+        raise ValueError("Разрешено одно расписание на workflow")
+    for node in triggers:
+        scheduling.config(node["config"])
+        if any(e["target"] == node["id"] for e in edges):
+            raise ValueError("Schedule Trigger не имеет входов")
+        if not any(e["source"] == node["id"] for e in edges):
+            raise ValueError("Подключите выход Schedule Trigger")
+        reachable = {node["id"]}
+        for _ in nodes:
+            reachable.update(e["target"] for e in edges if e["source"] in reachable)
+        if reachable != set(nodes):
+            raise ValueError("Все ноды должны быть доступны от Schedule Trigger; замените Manual Trigger")
     for node in nodes.values():
         if node["type"] == "webhook":
             notifications.validate(notifications.public(node["config"]))
@@ -139,6 +154,7 @@ async def lifespan(app):
         save("projects", dict(id="demo", name="Repair Desk · учебный проект", source="organizer"))
     if not all_of("workflows"):
         save("workflows", default_flow())
+    scheduling.recover(sys.modules[__name__])
     yield
 
 
@@ -297,9 +313,12 @@ def update_workflow(ident: str, body: Workflow):
             if node["type"] == "webhook":
                 node["config"] = notifications.protect(node["config"], old_nodes.get(node["id"], {}).get("config"))
         order(value)
-    except ValueError:
-        raise HTTPException(422, "Некорректный граф или Webhook. Проверьте URL, метод, таймаут, заголовки и GARDEN_WEBHOOK_KEY.")
-    save("workflows", value)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    with closing(connection()) as c, c:
+        c.execute("BEGIN IMMEDIATE")
+        scheduling.sync(c, value)
+        c.execute("INSERT OR REPLACE INTO objects VALUES (?,?,?)", ("workflows", ident, json.dumps(value, ensure_ascii=False)))
     return public_flow(value)
 
 
@@ -412,16 +431,27 @@ async def start(ident: str):
     except ValueError as exc:
         raise HTTPException(422, str(exc))
     project = get("projects", flow["project_id"])
+    run = new_run(flow, project)
+    save("runs", run)
+    launch(run, flow)
+    return run
+
+
+def new_run(flow, project):
     if project["source"] == "empty":
         raise HTTPException(422, "Сначала загрузите исходники проекта")
-    run = dict(id=uuid.uuid4().hex, workflow_id=ident, project_id=project["id"], project_name=project["name"],
-               source=project["source"], source_id=project.get("source_id"), name=flow["name"], started=time.time(), status="running",
-               nodes={n["id"]: "waiting" for n in flow["nodes"]}, findings=[], error=None)
-    save("runs", run)
+    return dict(id=uuid.uuid4().hex, workflow_id=flow["id"], project_id=project["id"], project_name=project["name"],
+                source=project["source"], source_id=project.get("source_id"), name=flow["name"], started=time.time(), status="running",
+                nodes={n["id"]: "waiting" for n in flow["nodes"]}, findings=[], error=None)
+
+
+def launch(run, flow):
     task = asyncio.create_task(execute(run, flow))
     tasks.add(task)
     task.add_done_callback(tasks.discard)
-    return run
+
+
+scheduling.install(sys.modules[__name__])
 
 
 @app.get("/api/runs/{ident}/events")

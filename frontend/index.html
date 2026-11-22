@@ -60,7 +60,7 @@ async function refreshProjects(){
   row.append(description,file,choose);list.append(row);
  }
 }
-const nodeNames={manual:'Manual Trigger',repository:'Repository Input',secrets:'Secrets Scanner',sca:'SCA Scanner',sast:'SAST Scanner',merge:'Merge Results',if:'IF / ELSE',ai:'AI Analysis',webhook:'HTTP Webhook'};
+const nodeNames={schedule:'Schedule Trigger',manual:'Manual Trigger',repository:'Repository Input',secrets:'Secrets Scanner',sca:'SCA Scanner',sast:'SAST Scanner',merge:'Merge Results',if:'IF / ELSE',ai:'AI Analysis',webhook:'HTTP Webhook'};
 let selection=null,connecting=null,nodeStates={},executing=false,view={x:30,y:30,zoom:1},editorReady=false;
 function editorMessage(text){$('#editorNotice').textContent=text}
 function changed(){nodeStates={};editorMessage('Есть несохранённые изменения')}
@@ -121,6 +121,19 @@ function renderSettings(){
  const text=document.createElement('span');
  if(selection.kind==='node'){
   const n=workflow.nodes.find(n=>n.id===selection.id);if(!n)return;text.textContent=nodeNames[n.type];box.append(text);
+  if(n.type==='schedule'){
+   const info=document.createElement('small');info.textContent='Замените Manual Trigger этой нодой. Domino проверяет задания раз в минуту. Пропуски объединяются в один запуск, пересечения пропускаются. Cron: 5 полей, день месяца и день недели — AND.';box.append(info);
+   const mode=document.createElement('select');mode.setAttribute('aria-label','Периодичность');
+   for(const [value,title] of [['daily','Ежедневно'],['interval','Интервал'],['cron','Cron']]){const option=document.createElement('option');option.value=value;option.textContent=title;mode.append(option)}
+   mode.value=n.config.mode||'daily';mode.disabled=executing;mode.onchange=()=>{n.config.mode=mode.value;changed();renderSettings()};box.append(mode);
+   const enabled=document.createElement('label');enabled.textContent='Расписание включено ';
+   const check=document.createElement('input');check.type='checkbox';check.checked=n.config.enabled??false;check.disabled=executing;check.onchange=()=>{n.config.enabled=check.checked;changed()};enabled.append(check);box.append(enabled);
+   const fields=[['timezone','Часовой пояс IANA','text','Europe/Moscow']];
+   if(mode.value==='interval')fields.push(['minutes','Интервал, минут','number',60]);
+   if(mode.value==='daily')fields.push(['time','Время','time','09:00']);
+   if(mode.value==='cron')fields.push(['cron','Cron','text','0 9 * * *']);
+   for(const [key,title,type,fallback] of fields){const label=document.createElement('label');label.textContent=title+' ';const input=document.createElement('input');input.type=type;input.style.width='180px';input.value=n.config[key]??fallback;input.disabled=executing;if(key==='minutes'){input.min=1;input.max=525600}input.oninput=()=>{n.config[key]=key==='minutes'?Number(input.value):input.value;changed()};label.append(input);box.append(label)}
+  }
   if(n.type==='webhook'){
    const note=document.createElement('small');note.textContent='Конечная нода. Только публичные адреса, без перенаправлений. Токен и заголовки требуют HTTPS. Сохранённые credentials: '+(n.config.has_credentials?'есть':'нет');box.append(note);
    for(const [key,title,type,fallback] of [['url','URL','url',''],['method','Метод POST / PUT','text','POST'],['timeout','Таймаут, секунды','number',10],['message','Текст сообщения','text',''],['token','Новый Bearer-токен','password','']]){

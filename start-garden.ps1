@@ -9,7 +9,38 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$config = Get-Content -LiteralPath (Join-Path $PSScriptRoot "garden-start.json") -Raw | ConvertFrom-Json
+if (-not $PSBoundParameters.ContainsKey("Provider")) { $Provider = $config.Provider }
+if ($Provider -notin @("Shugg", "Local", "Current")) { throw "Invalid provider in garden-start.json" }
+if (-not $PSBoundParameters.ContainsKey("DominoServiceName")) { $DominoServiceName = $config.DominoServiceName }
+if ($config.DominoMode -notin @("Console", "Service")) { throw "DominoMode must be Console or Service" }
 $gardenUrl = "http://127.0.0.1:8000"
+
+if (-not $CheckOnly -and $config.DominoMode -eq "Console") {
+    $executable = Join-Path $config.DominoDirectory "nserver.exe"
+    $ini = Join-Path $config.DominoDataDirectory "notes.ini"
+    if (-not (Test-Path -LiteralPath $executable)) { throw "Domino executable not found: $executable" }
+    $service = Get-Service -Name $DominoServiceName -ErrorAction Stop
+    if ($service.Status -ne "Stopped") {
+        Write-Host "Switching Domino from service to console; waiting for a clean shutdown..."
+        $stopCommand = '$ErrorActionPreference = ''Stop''; Stop-Service -Name ''' + $DominoServiceName.Replace("'", "''") + ''' -ErrorAction Stop'
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($stopCommand))
+        $stopper = Start-Process powershell.exe -Verb RunAs -ArgumentList @("-NoProfile", "-EncodedCommand", $encoded) -PassThru
+        if (-not $stopper.WaitForExit(60000)) { throw "Service stop is still pending. Do not start another server." }
+        if ($stopper.ExitCode -ne 0) { throw "Could not stop Domino service. No console server was started." }
+        $deadline = (Get-Date).AddSeconds(60)
+        while (Get-Process -Name nserver -ErrorAction SilentlyContinue) {
+            if ((Get-Date) -gt $deadline) { throw "Domino has not shut down. No second server was started." }
+            Start-Sleep -Seconds 1
+        }
+    }
+    if (-not (Get-Process -Name nserver -ErrorAction SilentlyContinue)) {
+        Write-Host "Opening the Domino server console. Enter the server ID password there if requested."
+        Start-Process -FilePath $executable -WorkingDirectory $config.DominoDirectory -Verb RunAs -ArgumentList ('"=' + $ini + '"') | Out-Null
+    } else {
+        Write-Host "Existing Domino console process reused."
+    }
+}
 
 function Test-Garden {
     try {
@@ -38,7 +69,7 @@ if (-not (Test-Domino)) {
     if ($CheckOnly) { throw "Domino NRPC is not ready on localhost:1352." }
     Write-Host "Waiting for Domino NRPC (up to 90 seconds)..."
     $service = Get-Service -Name $DominoServiceName -ErrorAction Stop
-    if (-not (Get-Process -Name nserver -ErrorAction SilentlyContinue) -and $service.Status -ne "Running") {
+    if ($config.DominoMode -eq "Service" -and -not (Get-Process -Name nserver -ErrorAction SilentlyContinue) -and $service.Status -ne "Running") {
         $escapedName = $DominoServiceName.Replace("'", "''")
         $command = '$ErrorActionPreference = ''Stop''; Start-Service -Name ''' + $escapedName + ''''
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
@@ -92,7 +123,7 @@ if (-not (Test-Garden)) {
 Write-Host "Garden API: OK"
 Write-Host "Panel: $gardenUrl"
 Write-Host "Existing processes were reused. Provider changes require a separate backend restart."
-if (-not $NoDominoLog -and -not $CheckOnly) {
+if ($config.DominoMode -eq "Service" -and -not $NoDominoLog -and -not $CheckOnly) {
     try {
         $viewer = Join-Path $PSScriptRoot "show-domino-log.ps1"
         if (-not (Test-Path -LiteralPath $viewer)) { throw "Missing log viewer: $viewer" }

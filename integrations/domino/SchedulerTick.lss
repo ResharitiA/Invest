@@ -1,0 +1,57 @@
+Option Public
+Option Declare
+
+Sub Initialize
+    On Error GoTo Failed
+
+    Dim session As New NotesSession
+    Dim request As NotesHTTPRequest
+    Dim response As Variant
+    Dim status As String
+    Dim token As String
+    Dim dataPath As String
+    Dim fileNumber As Integer
+    Dim opened As Boolean
+
+    dataPath = session.GetEnvironmentString("Directory", True)
+    If Len(dataPath) = 0 Then Error 1001, "Domino data directory is not configured"
+    If Right$(dataPath, 1) <> Chr$(92) Then dataPath = dataPath & Chr$(92)
+
+    fileNumber = FreeFile()
+    Open dataPath & "garden_scheduler.token" For Input As fileNumber
+    opened = True
+    Line Input #fileNumber, token
+    Close fileNumber
+    opened = False
+    token = Trim$(token)
+    If Len(token) < 32 Then Error 1002, "Scheduler token is not configured"
+
+    Set request = session.CreateHTTPRequest()
+    request.PreferStrings = True
+    request.TimeoutSec = 30
+    Call request.SetHeaderField("Authorization", "Bearer " & token)
+    Call request.SetHeaderField("Content-Type", "application/json")
+    response = request.Post("http://127.0.0.1:8000/api/domino/tick", "{}")
+    token = ""
+    status = CStr(request.ResponseCode)
+    Print "SchedulerTick HTTP: " & status
+    If InStr(status, " 200 ") = 0 Then
+        Print "SchedulerTick rejected. Check Garden readiness and token configuration."
+        GoTo Finished
+    End If
+    Print CStr(response)
+
+Finished:
+    token = ""
+    Exit Sub
+
+Failed:
+    Print "SchedulerTick failed, LotusScript error: " & CStr(Err)
+    Resume Cleanup
+
+Cleanup:
+    On Error Resume Next
+    If opened Then Close fileNumber
+    token = ""
+    Exit Sub
+End Sub
