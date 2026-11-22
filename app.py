@@ -1,4 +1,11 @@
 import asyncio
+import hashlib
+import secrets
+
+from urllib.parse import urlsplit
+from starlette.responses import RedirectResponse
+from starlette.concurrency import run_in_threadpool
+from starlette.responses import JSONResponse
 import json
 import sqlite3
 import time
@@ -161,6 +168,87 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Garden · Security Workflows", lifespan=lifespan)
+sessions = {}
+login_attempts = {}
+SESSION_SECONDS = 8 * 60 * 60
+
+
+def valid_login(username, password):
+    password_hash = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), b"garden-login-rehe-v1", 600000
+    ).hex()
+    return secrets.compare_digest(username.encode("utf-8"), b"rehe") & secrets.compare_digest(
+        password_hash, "fae93cb9f75582ff6d2f523e947a7ed4c36935ab415803221ecdc2c51acd78d3"
+    )
+
+
+@app.middleware("http")
+async def require_login(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/domino/"):
+        return await call_next(request)
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        origin = request.headers.get("origin")
+        if origin and urlsplit(origin).netloc != request.url.netloc:
+            return JSONResponse({"detail": "Недопустимый источник запроса"}, status_code=403)
+        if request.headers.get("sec-fetch-site") == "cross-site":
+            return JSONResponse({"detail": "Недопустимый источник запроса"}, status_code=403)
+    token = request.cookies.get("garden_session", "")
+    authenticated = sessions.get(token, 0) > time.time()
+    public_paths = {"/login", "/api/auth/login", "/assets/Helper1.obj", "/assets/Helper1.mtl",
+                    "/assets/creator/I_mast_help_zap.mtl.obj", "/assets/creator/I_mast_help_zap.mtl.mtl"}
+    if path not in public_paths and not authenticated:
+        sessions.pop(token, None)
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "Войдите в аккаунт"}, status_code=401)
+        return RedirectResponse("/login", status_code=303)
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+class Login(BaseModel):
+    username: str = Field(max_length=120)
+    password: str = Field(max_length=256)
+
+
+@app.get("/login")
+def login_page():
+    return FileResponse(ROOT / "frontend/login.html")
+
+
+@app.post("/api/auth/login")
+async def login(body: Login, request: Request):
+    now = time.time()
+    for host, attempts in list(login_attempts.items()):
+        if now - attempts[0] >= 60:
+            login_attempts.pop(host, None)
+    host = request.client.host if request.client else "local"
+    attempts = login_attempts.setdefault(host, [now, 0])
+    if attempts[1] >= 5:
+        raise HTTPException(429, "Слишком много попыток. Повторите через минуту.")
+    attempts[1] += 1
+    if not await run_in_threadpool(valid_login, body.username, body.password):
+        raise HTTPException(401, "Неверный логин или пароль")
+    login_attempts.pop(host, None)
+    for key, expiry in list(sessions.items()):
+        if expiry <= now:
+            sessions.pop(key, None)
+    sessions.pop(request.cookies.get("garden_session", ""), None)
+    token = secrets.token_urlsafe(32)
+    sessions[token] = now + SESSION_SECONDS
+    response = JSONResponse({"username": "rehe"})
+    response.set_cookie("garden_session", token, max_age=SESSION_SECONDS,
+                        httponly=True, samesite="strict", secure=request.url.scheme == "https")
+    return response
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request):
+    sessions.pop(request.cookies.get("garden_session", ""), None)
+    response = JSONResponse({"ok": True})
+    response.delete_cookie("garden_session")
+    return response
 
 
 @app.get("/")
