@@ -342,17 +342,32 @@ async def creator_answer(body: CreatorQuestion):
         raise HTTPException(422, "Введите вопрос")
     run = get("runs", body.run_id) if body.run_id else None
     context = {
-        "workflow": {"name": body.workflow.name,
-                     "nodes": [{"id": n.id, "type": n.type} for n in body.workflow.nodes],
-                     "edges": [e.model_dump() for e in body.workflow.edges]},
+        "workflow": public_flow(body.workflow.model_dump()),
+        "workflow_schema": Workflow.model_json_schema(),
         "audit": {"name": run["name"], "status": run["status"],
                   "project": run.get("project_name"), "started": run["started"]} if run else None,
     }
     history = [{"question": t.question, "answer": {"summary": t.answer}} for t in body.history]
     try:
-        return await assess(run.get("findings", []) if run else [], body.question,
-                            history=history, creator_context=context)
-    except ValueError as exc:
+        answer = await assess(run.get("findings", []) if run else [], body.question,
+                              history=history, creator_context=context)
+        if answer.get("workflow") is not None:
+            draft = Workflow.model_validate(answer["workflow"]).model_dump()
+            draft["project_id"] = body.workflow.project_id
+            previous = {n.id: n for n in body.workflow.nodes}
+            for node in draft["nodes"]:
+                old = previous.get(node["id"])
+                if node["type"] == "schedule":
+                    node["config"]["enabled"] = bool(old and old.type == "schedule" and old.config.get("enabled"))
+                if node["type"] == "webhook":
+                    node["config"] = {k: v for k, v in node["config"].items()
+                                      if k in {"url", "method", "timeout", "message"}}
+                    if old and old.type == "webhook":
+                        node["config"] = dict(old.config, **node["config"])
+            order(draft)
+            answer["workflow"] = public_flow(draft)
+        return answer
+    except (ValueError, TypeError) as exc:
         raise HTTPException(422, str(exc))
 
 

@@ -77,7 +77,7 @@ input[type=file]::file-selector-button{background:#cfE3f9;color:#203b59;border:1
 :root[data-theme] #creatorForm textarea{background:rgba(244,249,255,.85)!important;color:#1b304b!important}
 .creator-chat{margin-top:18px;padding-top:18px;border-top:1px solid #7898b655;color:#1b304b;min-width:0}.creator-chat h2{margin-bottom:8px}.creator-chat .toolbar{flex-wrap:wrap}.creator-chat select{max-width:100%}#creatorMessages{max-height:280px;overflow:auto;overflow-wrap:anywhere;padding:10px;background:#eff7ff55;border:1px solid #bdd5e788;border-radius:12px;margin:12px 0}.creator-message{padding:12px;margin:8px 0;background:#f2f8ffb8;border-radius:10px;white-space:pre-wrap}.creator-message strong{display:block;margin-bottom:6px;color:#355b85}.creator-message.creator-user{margin-left:24px;background:#584776;color:white}.creator-user strong{color:white}#creatorChatForm{display:flex;gap:8px;flex-wrap:wrap}#creatorQuestion{flex:1;min-width:180px}#creatorChatStatus{min-height:20px;font-size:13px}
 .creator-panel{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}.creator-panel>canvas{flex:0 0 140px}.creator-panel>.creator-chat{flex:1;min-width:0;margin-top:0;padding-top:0;border-top:0}#creatorQuestion{width:100%;flex-basis:100%;resize:vertical;min-height:64px}#creatorChatForm{align-items:center}@media(max-width:600px){.creator-panel>.creator-chat{flex-basis:100%}}
-.creator-conversation{background:#eff7ff77;border:1px solid #bdd5e799;border-radius:12px;overflow:hidden;margin:12px 0}.creator-conversation #creatorMessages{background:transparent;border:0;border-radius:0;margin:0;padding:12px;min-height:100px}.creator-conversation #creatorChatForm{padding:12px;margin:0;border-top:1px solid #9ab7d044}.creator-conversation #creatorQuestion{background:transparent!important;border:0!important;box-shadow:none;outline-offset:0}
+.creator-conversation{background:#eff7ff77;border:1px solid #bdd5e799;border-radius:12px;overflow:hidden;margin:12px 0}.creator-conversation #creatorMessages{background:transparent;border:0;border-radius:0;margin:0;padding:12px;min-height:100px}.creator-conversation #creatorChatForm{padding:12px;margin:0;border-top:1px solid #9ab7d044}.creator-conversation #creatorChatForm{display:flex;flex-wrap:nowrap;gap:10px;align-items:flex-end}.creator-conversation #creatorQuestion{flex:1;flex-basis:auto;width:auto;min-width:0;min-height:48px;max-height:120px;resize:vertical;background:#ffffff!important;border:1px solid #bdd5e7!important;border-radius:16px;padding:12px 14px;color:#1b304b!important;box-shadow:none}.creator-conversation #creatorMessages{max-height:300px;overflow-y:auto}.creator-conversation .creator-message{max-width:90%;white-space:pre-wrap}.creator-conversation .creator-user,.creator-conversation .creator-user strong,.creator-conversation .creator-user div{color:#000!important}.creator-conversation .creator-user{margin-left:auto;background:#dcefff;border-radius:14px;padding:10px 14px}.creator-panel>canvas{animation:creator-wave 4.5s ease-in-out infinite;transform-origin:center}@keyframes creator-wave{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-9px) rotate(2deg)}}@media(prefers-reduced-motion:reduce){.creator-panel>canvas{animation:none}}
 </style><script>
 (function(){let theme=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';try{theme=localStorage.getItem('garden-theme')||theme}catch(e){}document.documentElement.dataset.theme=theme==='light'?'light':'dark'})()
 </script></head><body><div class="app"><aside class="side"><div class="brand"><span>G</span>arden</div><nav class="nav"><button data-page="dashboard" class="active">▦ &nbsp; Dashboard</button><button data-page="editor">◇ &nbsp; Workflow Editor</button><button data-page="reports">⚠ &nbsp; Security Reports</button><button data-page="history">◷ &nbsp; Executions</button></nav></aside><main class="main">
@@ -92,7 +92,7 @@ const themeToggle=document.createElement('button');themeToggle.id='themeToggle';
 function updateThemeToggle(){themeToggle.textContent=document.documentElement.dataset.theme==='light'?'Тёмная тема':'Светлая тема'}
 themeToggle.onclick=()=>{const theme=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=theme;try{localStorage.setItem('garden-theme',theme)}catch(e){}updateThemeToggle()};
 updateThemeToggle();$('.brand').after(themeToggle);
-async function api(url,opt){const r=await fetch(url,opt);if(!r.ok){if(r.status===405&&opt?.method==='DELETE')throw Error('Запущен старый backend без удаления. Перезапустите .\\start-gmail.ps1 и обновите страницу Ctrl+F5.');let detail;try{detail=(await r.json()).detail}catch(e){}throw Error(typeof detail==='string'?detail:'Ошибка сервера: HTTP '+r.status)}return r.json()}
+async function api(url,opt){const r=await fetch(url,opt);if(!r.ok){if(r.status===405&&url==='/api/workflows/assistant')throw Error('Запущен старый backend без чата Архитектора. Перезапустите .\\start-gmail.ps1 и обновите страницу Ctrl+F5.');if(r.status===405&&opt?.method==='DELETE')throw Error('Запущен старый backend без удаления. Перезапустите .\\start-gmail.ps1 и обновите страницу Ctrl+F5.');let detail;try{detail=(await r.json()).detail}catch(e){}throw Error(typeof detail==='string'?detail:'Ошибка сервера: HTTP '+r.status)}return r.json()}
 function show(page){if(!['dashboard','editor','reports','history','projects'].includes(page))page='dashboard';history.replaceState(null,'','#'+page);document.querySelectorAll('main section').forEach(x=>x.classList.toggle('hidden',x.id!==page));document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.page===page));if(page==='reports')refreshReportAudits().catch(e=>{$('#reportNotice').textContent=e.message});if(page==='history')loadHistory()}
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page));
 async function load(){try{[workflow]=await api('/api/workflows');workflow??={name:'Новая сборка',project_id:'',nodes:[{id:'manual',type:'manual',x:60,y:160,config:{}}],edges:[]};renderCanvas();setupProjects();show(location.hash.slice(1)||'dashboard');await refreshProjects();loadHistory();await updateMetrics()}catch(e){alert(e.message)}}
@@ -103,7 +103,7 @@ function setupProjects(){
  section.innerHTML='<div class="top"><div><h1>Projects</h1><p class="muted">Собственные и разрешённые учебные исходники. Код не выполняется.</p></div></div><form id="projectForm" class="toolbar"><input id="projectName" aria-label="Название проекта" maxlength="120" placeholder="Название проекта" required><button class="btn">Создать проект</button></form><p class="muted">Загрузка заменяет исходники проекта целиком. ZIP: до 10 МБ, до 1000 элементов, до 30 МБ распакованных данных; файл до 1 МБ. Можно загрузить один исходный файл UTF-8. Для набора файлов используйте ZIP.</p><p id="projectNotice" role="status"></p><div id="projectList" class="panel"></div>';
  $('main').append(section);
  const label=document.createElement('label');label.textContent='Проект ';
- const select=document.createElement('select');select.id='projectSelect';select.setAttribute('aria-label','Проект workflow');label.append(select);const projectGroup=document.createElement('div');projectGroup.style.cssText='display:flex;flex-direction:column;gap:10px';const savedGroup=$('#savedWorkflows').closest('div');projectGroup.append(label,savedGroup);$('#editor .toolbar').prepend(projectGroup);
+ const select=document.createElement('select');select.id='projectSelect';select.setAttribute('aria-label','Проект workflow');label.append(select);const projectGroup=document.createElement('div');projectGroup.style.cssText='display:flex;flex-direction:column;gap:10px';const savedGroup=$('#savedWorkflows').closest('div');projectGroup.append(label,savedGroup);$('#canvas').previousElementSibling.prepend(projectGroup);
  select.onchange=async()=>{
   if(executing)return;workflow.project_id=select.value;latest={findings:[]};changed();renderFindings();
   try{await updateMetrics()}catch(e){editorMessage(e.message)}
@@ -162,7 +162,27 @@ async function refreshProjects(){
 const nodeNames={schedule:'Schedule Trigger',manual:'Manual Trigger',repository:'Repository Input',secrets:'Secrets Scanner',sca:'SCA Scanner',sast:'SAST Scanner',merge:'Merge Results',if:'IF / ELSE',ai:'AI Analysis',webhook:'HTTP Webhook'};
 let selection=null,connecting=null,nodeStates={},executing=false,view={x:30,y:30,zoom:1},editorReady=false;
 function editorMessage(text){$('#editorNotice').textContent=text}
-function changed(){nodeStates={};editorMessage('Есть несохранённые изменения')}
+let undoStack=[],undoWorkflow=null,undoSnapshot=null;
+function resetUndo(){undoStack=[];undoWorkflow=workflow;undoSnapshot=structuredClone(workflow)}
+function changed(){
+ if(undoWorkflow===workflow&&undoSnapshot&&JSON.stringify(undoSnapshot)!==JSON.stringify(workflow)){
+  undoStack.push(undoSnapshot);if(undoStack.length>100)undoStack.shift();
+ }
+ undoWorkflow=workflow;undoSnapshot=structuredClone(workflow);
+ nodeStates={};editorMessage('Есть несохранённые изменения');
+}
+function undoChange(){
+ if(executing||connecting||undoWorkflow!==workflow||!undoStack.length)return;
+ workflow=undoStack.pop();undoWorkflow=workflow;undoSnapshot=structuredClone(workflow);
+ selection=null;connecting=null;nodeStates={};renderCanvas();renderSettings();
+ if($('#projectSelect'))$('#projectSelect').value=workflow.project_id;
+ editorMessage('Действие отменено. Есть несохранённые изменения');
+}
+$('#editor').addEventListener('keydown',e=>{
+ if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey&&e.code==='KeyZ'&&!e.target.closest('input,textarea,[contenteditable]')){
+  e.preventDefault();undoChange();
+ }
+});
 function setupEditor(){
  if(editorReady)return;editorReady=true;
  const style=document.createElement('style');style.textContent=`
@@ -187,7 +207,10 @@ function setupEditor(){
  for(const [type,name] of Object.entries(nodeNames)){const o=document.createElement('option');o.value=type;o.textContent=name;types.append(o)}
  toolbar.append(types);
  const action=(label,fn)=>{const b=document.createElement('button');b.className='btn secondary';b.textContent=label;b.onclick=fn;toolbar.append(b);return b};
- const addButton=action('Добавить ноду',()=>addNode(types.value));const nodeTools=document.createElement('div');nodeTools.className='node-tools';toolbar.append(nodeTools);nodeTools.append(types,addButton);
+ types.prepend(new Option('Выберите тип…',''));types.value='';
+ const nodeLabel=document.createElement('label');nodeLabel.textContent='Выбрать ноду ';nodeLabel.append(types);
+ const nodeTools=document.createElement('div');nodeTools.className='node-tools';toolbar.append(nodeTools);nodeTools.append(nodeLabel);
+ types.onchange=()=>{if(types.value)addNode(types.value);types.value=''};
  const zoom=document.createElement('span');zoom.id='zoomValue';zoom.hidden=true;toolbar.append(zoom);
  const builds=document.createElement('select');builds.id='savedWorkflows';builds.setAttribute('aria-label','Сохранённые сборки');toolbar.append(builds);
  builds.onchange=async()=>{const id=builds.value;if(executing||!id){builds.value=workflow.id||'';return}if($('#editorNotice').textContent==='Есть несохранённые изменения'&&!confirm('Открыть сборку? Несохранённые изменения будут потеряны.')){builds.value=workflow.id||'';return}builds.disabled=true;try{const list=await api('/api/workflows');const next=list.find(f=>f.id===id);if(!next)throw Error('Сборка больше не существует');workflow=next;selection=null;nodeStates={};latest={findings:[]};$('#projectSelect').value=workflow.project_id;renderCanvas();renderSettings();builds.value=id;editorMessage('Сборка открыта: '+workflow.name)}catch(e){editorMessage(e.message);builds.value=workflow.id||''}finally{builds.disabled=false}};
@@ -224,11 +247,12 @@ function setupEditor(){
  creator.classList.add('creator-panel');
  creator.innerHTML='<canvas id="creatorModel" width="140" height="140" aria-label="3D помощник конструктора"></canvas>';
  setupCreatorChat(creator);
- toolbar.after(creator);
+ toolbar.before(creator);
  refreshBuilds().catch(e=>editorMessage(e.message));
  const notice=document.createElement('div');notice.id='editorNotice';notice.setAttribute('role','status');
  const settings=document.createElement('div');settings.id='nodeSettings';
- const canvas=$('#canvas');canvas.before(notice,settings);canvas.tabIndex=0;canvas.setAttribute('aria-label','Полотно workflow');
+ toolbar.append($('#creatorAudit').closest('label'));toolbar.setAttribute('aria-label','Ручное конструирование сборки');
+ const canvas=$('#canvas');canvas.before(notice,settings,toolbar);canvas.tabIndex=0;canvas.setAttribute('aria-label','Полотно workflow');
  canvas.onwheel=e=>{e.preventDefault();zoomAt(view.zoom*(e.deltaY<0?1.1:1/1.1),e.clientX,e.clientY)};
  canvas.onpointerdown=e=>{
   if(e.button!==0||e.target.closest('.node,.edge')||executing)return;
@@ -366,6 +390,7 @@ function startWire(event,node,branch,input,portIndex=0){
 }
 function renderCanvas(){
  setupEditor();const c=$('#canvas');c.replaceChildren();if(!workflow)return;
+ if(undoWorkflow!==workflow)resetUndo();
  const world=document.createElement('div');world.id='world';c.append(world);
  const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.id='links';world.append(svg);
  workflow.edges.forEach((edge,index)=>{
@@ -506,13 +531,13 @@ function addNode(type){
 function downloadReport(){if(!reportAuditId)return;const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({findings:reportFindings()},null,2)],{type:'application/json'}));a.download='security-report-'+reportAuditId+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 function setupCreatorChat(container){
  const chat=document.createElement('div');chat.className='creator-chat';
- chat.innerHTML='<h2>Архитектор · соберём идею вместе</h2><div class="toolbar"><label class="creator-audit-label">Аудит для разбора <select id="creatorAudit"><option value="">Без отчёта</option></select></label></div><div id="creatorMessages" role="log" aria-label="Переписка с конструктором"></div><div class="toolbar"><button class="btn secondary" type="button" data-question="Каких нод не хватает моей схеме и почему?">Посоветуй ноды</button><button class="btn secondary" type="button" data-question="Разбери выбранный аудит: что проверить первым и как улучшить workflow?">Разбери отчёт</button></div><form id="creatorChatForm"><textarea id="creatorQuestion" maxlength="4000" required rows="2" aria-label="Сообщение конструктору"></textarea><button class="btn" type="submit">Отправить</button><button class="btn secondary" type="button" data-question="Проверь текущую сборку: оцени связи и состав нод, объясни проблемы и предложи улучшения. Не запускай аудит.">Проверить сборку</button></form><p id="creatorChatStatus" role="status"></p>';
+ chat.innerHTML='<h2>Архитектор · соберём идею вместе</h2><div class="toolbar"><label class="creator-audit-label">Аудит для разбора <select id="creatorAudit"><option value="">Без отчёта</option></select></label></div><div id="creatorMessages" role="log" aria-live="polite" aria-label="Переписка с архитектором"></div><form id="creatorChatForm"><textarea id="creatorQuestion" maxlength="4000" required rows="2" placeholder="Напишите сообщение… " aria-label="Сообщение архитектору"></textarea><button class="btn" type="submit">Отправить</button></form><p id="creatorChatStatus" role="status"></p>';
  container.append(chat);
  const audit=chat.querySelector('#creatorAudit'),messages=chat.querySelector('#creatorMessages'),status=chat.querySelector('#creatorChatStatus'),form=chat.querySelector('form'),input=chat.querySelector('#creatorQuestion');
  const conversation=document.createElement('div');conversation.className='creator-conversation';messages.before(conversation);conversation.append(messages,form);
  let history=[],busy=false;
  const append=(title,text)=>{const item=document.createElement('div');item.className='creator-message'+(title==='Вы'?' creator-user':'');const label=document.createElement('strong'),body=document.createElement('div');label.textContent=title;body.textContent=text;item.append(label,body);messages.append(item);messages.scrollTop=messages.scrollHeight};
- const reset=()=>{history=[];messages.replaceChildren();append('Архитектор','С чего начнём? Могу объяснить текущую схему, предложить ноды или разобрать выбранный отчёт. Советы не меняют сборку автоматически.');status.textContent=''};
+ const reset=()=>{history=[];messages.replaceChildren();append('Архитектор','Задайте вопрос или попросите изменить сборку — добавлю ноды, соединю их и сохраню результат.');status.textContent=''};
  reset();
  async function reports(){
   const runs=await api('/api/runs'),previous=audit.value||reportAuditId;
@@ -522,15 +547,26 @@ function setupCreatorChat(container){
  }
  reports().catch(e=>status.textContent=e.message);
  audit.onchange=()=>reset();
- chat.querySelectorAll('[data-question]').forEach(button=>button.onclick=()=>{if(busy)return;input.value=button.dataset.question;form.requestSubmit()});
+ input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();form.requestSubmit()}};
  form.onsubmit=async e=>{
-  e.preventDefault();if(busy)return;const question=input.value.trim();if(!question)return;
-  if(question.includes('выбранный аудит')&&!audit.value){status.textContent='Выберите отчёт для разбора.';return}
-  busy=true;chat.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=true);append('Вы',question);status.textContent='Обдумываю схему…';
+  e.preventDefault();if(busy||executing)return;const question=input.value.trim();if(!question)return;
+  const snapshot=JSON.stringify(workflow);
+  busy=true;chat.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=true);append('Вы',question);input.value='';status.textContent='Архитектор отвечает…';
   try{
-   const safe={name:workflow.name,project_id:workflow.project_id,nodes:workflow.nodes.map(n=>({id:n.id,type:n.type})),edges:workflow.edges};
+   const safe={...workflow,nodes:workflow.nodes.map(n=>({...n,config:Object.fromEntries(Object.entries(n.config||{}).filter(([key])=>!['headers','token','password','authorization'].includes(key.toLowerCase())))}))};
    const answer=await api('/api/workflows/assistant',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,workflow:safe,run_id:audit.value||null,history:history.slice(-12)})});
-   append('Архитектор',answer.summary);history.push({question,answer:answer.summary.slice(0,12000)});input.value='';status.textContent='';
+   let summary=answer.summary;
+   if(answer.workflow){
+    if(executing||JSON.stringify(workflow)!==snapshot)throw Error('Сборка изменилась во время ответа. Повторите просьбу для текущей схемы.');
+    const previous=workflow;
+    workflow={...answer.workflow,id:previous.id,project_id:previous.project_id};
+    for(const node of workflow.nodes){const old=previous.nodes.find(n=>n.id===node.id&&n.type===node.type);if(node.type==='webhook'&&old)node.config={...old.config,...node.config}}
+    try{validateGraph();const saved=await api(workflow.id?'/api/workflows/'+workflow.id:'/api/workflows',{method:workflow.id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(workflow)});workflow=saved}
+    catch(error){workflow=previous;throw error}
+    selection=null;nodeStates={};renderCanvas();renderSettings();await refreshBuilds();editorMessage('Архитектор сохранил сборку: '+workflow.name);
+    summary+='\n\nИзменения применены и сохранены.';
+   }
+   append('Архитектор',summary);history.push({question,answer:summary.slice(0,12000)});input.value='';status.textContent='';
   }catch(error){status.textContent=error.message}
   finally{busy=false;chat.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=false)}
  };
