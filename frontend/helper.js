@@ -4,7 +4,11 @@ style.textContent = `
 .helper-toggle{background:#182943;border:1px solid #60a5fa;border-radius:24px;color:white;cursor:pointer;width:150px;height:190px;padding:0}
 .helper-toggle canvas{width:150px;height:155px;display:block}
 .helper-chat{width:min(390px,calc(100vw - 32px));background:#111b2d;border:1px solid #3b82f6;border-radius:16px;padding:18px;margin-bottom:10px;box-shadow:0 12px 40px #0008}
+.helper-chat{position:fixed;box-sizing:border-box;margin:0;max-height:calc(100dvh - 16px)!important}
 .helper-chat[hidden]{display:none}.helper-chat header{display:flex;justify-content:space-between}
+:root[data-theme] .helper-chat header button{width:27px;height:27px;flex-shrink:0;padding:0;border:1px solid #191919;border-radius:3px;color:#fff;background:linear-gradient(135deg,#ffad8b 0%,#e64c31 40%,#b52212 100%);box-shadow:inset 1px 1px 0 #ffcab3,inset -1px -1px 0 #8d1f14,0 0 0 1px #943021;font:bold 25px/23px Arial,sans-serif;text-shadow:1px 1px #802719}
+:root[data-theme] .helper-chat header button:hover{filter:brightness(1.15)}
+:root[data-theme] .helper-chat header button:focus-visible{outline:2px solid #fff;outline-offset:3px}
 .helper-output{white-space:pre-wrap;max-height:310px;overflow:auto;overflow-wrap:anywhere;font-size:14px;line-height:1.5;margin:12px 0}
 .helper-message{background:#182943;border-radius:10px;padding:10px;margin:10px 0}.helper-message strong{display:block;color:#93c5fd;margin-bottom:6px}.helper-question{background:#223b57;margin-left:24px}
 .helper-chat input,.helper-chat select{width:100%;background:#0b1220;color:#e8eef8;border:1px solid #526783;padding:10px;border-radius:7px;margin:6px 0}
@@ -18,6 +22,45 @@ document.body.append(root);
 const panel=root.querySelector('.helper-chat'), toggle=root.querySelector('.helper-toggle');
 const output=root.querySelector('.helper-output'), select=root.querySelector('select');
 let runs=[],busy=false,canAsk=false;
+let suppressClick=false;
+function positionChat(){
+ if(panel.hidden)return;
+ const anchor=toggle.getBoundingClientRect(),gap=12,margin=8,width=Math.min(390,innerWidth-32);
+ const leftSpace=anchor.left-gap-margin,rightSpace=innerWidth-anchor.right-gap-margin;
+ const above=anchor.top-gap-margin,below=innerHeight-anchor.bottom-gap-margin;
+ const side=leftSpace>=width?'left':rightSpace>=width?'right':null;
+ panel.style.width=width+'px';
+ panel.style.setProperty('max-height',Math.max(1,side?innerHeight-margin*2:Math.max(above,below))+'px','important');
+ const rect=panel.getBoundingClientRect();
+ let left,top;
+ if(side){left=side==='left'?anchor.left-gap-width:anchor.right+gap;top=Math.max(margin,Math.min(anchor.top,innerHeight-rect.height-margin))}
+ else{left=Math.max(margin,Math.min(anchor.right-width,innerWidth-width-margin));top=above>=below?anchor.top-gap-rect.height:anchor.bottom+gap}
+ panel.style.left=left+'px';panel.style.top=top+'px';
+}
+function clampHelper(){
+ const rect=root.getBoundingClientRect();
+ root.style.left=Math.max(8,Math.min(rect.left,innerWidth-rect.width-8))+'px';
+ root.style.top=Math.max(8,Math.min(rect.top,innerHeight-rect.height-8))+'px';
+ root.style.right='auto';root.style.bottom='auto';positionChat();
+}
+new ResizeObserver(positionChat).observe(panel);
+for(const handle of [root.querySelector('header'),toggle]){
+ handle.style.touchAction='none';handle.style.cursor='grab';
+ handle.addEventListener('pointerdown',e=>{
+  if(e.button!==0||e.target.closest('header button'))return;
+  const rect=root.getBoundingClientRect(),x=e.clientX,y=e.clientY;let moved=false;
+  handle.setPointerCapture(e.pointerId);
+  const move=ev=>{
+   if(Math.hypot(ev.clientX-x,ev.clientY-y)<5&&!moved)return;
+   moved=true;root.style.left=rect.left+ev.clientX-x+'px';root.style.top=rect.top+ev.clientY-y+'px';root.style.right='auto';root.style.bottom='auto';clampHelper();
+  };
+  const finish=()=>{handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',finish);handle.removeEventListener('pointercancel',finish);if(moved){suppressClick=true;setTimeout(()=>suppressClick=false,0)}};
+  handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',finish);
+ });
+}
+root.addEventListener('click',e=>{if(suppressClick){e.preventDefault();e.stopImmediatePropagation()}},true);
+window.addEventListener('resize',()=>{if(root.style.left)clampHelper();else positionChat()});
+toggle.addEventListener('click',()=>requestAnimationFrame(positionChat));
 const notice=document.createElement('div');notice.className='muted';notice.setAttribute('role','status');output.after(notice);
 output.setAttribute('role','log');output.setAttribute('aria-label','История переписки');
 function format(a){
@@ -57,8 +100,9 @@ function showSaved(){
   appendMessage('Скрепка',format(entry.answer));
  }
  if(!output.childElementCount)output.textContent=r?'Задайте вопрос о выбранном запуске.':'Нет переписки.';
+ positionChat();
 }
-toggle.onclick=()=>{panel.hidden=!panel.hidden;toggle.setAttribute('aria-expanded',String(!panel.hidden));if(!panel.hidden)refresh()};
+toggle.onclick=()=>{panel.hidden=!panel.hidden;toggle.setAttribute('aria-expanded',String(!panel.hidden));if(!panel.hidden){positionChat();refresh()}};
 root.querySelector('header button').onclick=()=>{panel.hidden=true;toggle.setAttribute('aria-expanded','false')};
 select.onchange=()=>{notice.textContent='';showSaved()};
 root.querySelector('form').onsubmit=async e=>{
@@ -89,11 +133,19 @@ async function model(){
   const materials=await new MTLLoader().loadAsync('/assets/Helper1.mtl');materials.preload();
   const object=await new OBJLoader().setMaterials(materials).loadAsync('/assets/Helper1.obj');
   const box=new THREE.Box3().setFromObject(object),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());
-  const scale=2/Math.max(size.x,size.y,size.z);
+  const scale=2.35/Math.max(size.x,size.y,size.z);
   object.position.copy(center).multiplyScalar(-scale);object.scale.setScalar(scale);
   const pivot=new THREE.Group();pivot.add(object);scene.add(pivot);camera.position.set(0,0,4.5);
   const reduced=matchMedia('(prefers-reduced-motion: reduce)');
-  renderer.setAnimationLoop(t=>{if(!reduced.matches){pivot.rotation.y=Math.sin(t*.0005)*.16;pivot.position.y=Math.sin(t*.002)*.04}renderer.render(scene,camera)});
+  let spinStart=null;
+  toggle.addEventListener('click',()=>{if(!reduced.matches&&spinStart===null)spinStart=performance.now()});
+  renderer.setAnimationLoop(t=>{
+   let spin=0;
+   if(spinStart!==null){const progress=Math.min(1,Math.max(0,(t-spinStart)/950));spin=(1-Math.pow(1-progress,3))*Math.PI*2;if(progress===1)spinStart=null}
+   pivot.rotation.y=reduced.matches?0:Math.sin(t*.0005)*.16+spin;
+   pivot.position.y=reduced.matches?0:Math.sin(t*.002)*.04;
+   renderer.render(scene,camera);
+  });
  }catch(e){root.querySelector('canvas').hidden=true;toggle.style.height='60px';toggle.title='3D недоступно; чат продолжает работать';console.warn('Helper1:',e)}
 }
 model();

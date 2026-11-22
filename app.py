@@ -19,7 +19,7 @@ from backend.scanners import ROOT, SCANNERS, texts
 from backend.ai_helper import assess, configured
 from contextlib import closing
 import copy
-from backend import notifications, scheduling
+from backend import notifications, scheduling, gmail
 import sys
 
 DB = ROOT / "garden.sqlite3"
@@ -66,6 +66,8 @@ class Edge(BaseModel):
     source: str
     target: str
     branch: str = ""
+    source_port: int = Field(default=0, ge=0, le=19)
+    target_port: int = Field(default=0, ge=0, le=19)
 
 
 class Workflow(BaseModel):
@@ -208,6 +210,26 @@ def create_project(body: Project):
     return save("projects", dict(id=uuid.uuid4().hex, name=body.name, source="empty"))
 
 
+@app.delete("/api/projects/{ident}")
+def delete_project(ident: str):
+    with closing(connection()) as c, c:
+        c.execute("BEGIN IMMEDIATE")
+        if not c.execute("SELECT 1 FROM objects WHERE kind='projects' AND id=?", (ident,)).fetchone():
+            raise HTTPException(404, "Проект не найден")
+        runs = [json.loads(row[0]) for row in c.execute("SELECT data FROM objects WHERE kind='runs'")]
+        if any(r.get("project_id") == ident and r.get("status") == "running" and not r.get("finished") for r in runs):
+            raise HTTPException(409, "Дождитесь завершения аудита проекта")
+        scheduling.tables(c)
+        for kind in ("workflows", "sources"):
+            for object_id, raw in c.execute("SELECT id,data FROM objects WHERE kind=?", (kind,)).fetchall():
+                if json.loads(raw).get("project_id") == ident:
+                    if kind == "workflows":
+                        c.execute("DELETE FROM schedules WHERE workflow_id=?", (object_id,))
+                    c.execute("DELETE FROM objects WHERE kind=? AND id=?", (kind, object_id))
+        c.execute("DELETE FROM objects WHERE kind='projects' AND id=?", (ident,))
+    return {"deleted": ident}
+
+
 @app.get("/api/projects/{ident}")
 def project_detail(ident: str):
     return get("projects", ident)
@@ -297,9 +319,55 @@ def nodes():
     return TYPES
 
 
+class WorkflowRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000)
+    project_id: str = "demo"
+
+
+@app.post("/api/workflows/generate")
+async def generate_workflow(body: WorkflowRequest):
+    get("projects", body.project_id)
+    if not body.prompt.strip():
+        raise HTTPException(422, "Опишите workflow")
+    try:
+        raw = await assess([], body.prompt, workflow_schema=Workflow.model_json_schema())
+        draft = Workflow.model_validate(raw).model_dump()
+        draft["project_id"] = body.project_id
+        for node in draft["nodes"]:
+            if node["type"] == "schedule":
+                node["config"]["enabled"] = False
+            if node["type"] == "webhook":
+                node["config"] = {k: v for k, v in node["config"].items()
+                                  if k in {"url", "method", "timeout", "message"}}
+        order(draft)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, "Не удалось создать схему: " + str(exc))
+    return draft
+
+
+@app.get("/assets/creator/{name}")
+def creator_asset(name: str):
+    if name not in {"I_mast_help_zap.mtl.obj", "I_mast_help_zap.mtl.mtl",
+                    "Снимок экрана 2026-11-21 142646.png"}:
+        raise HTTPException(404)
+    return FileResponse(ROOT / "3d" / "creater" / name)
+
+
 @app.post("/api/workflows")
 def create_workflow(body: Workflow):
     return update_workflow(uuid.uuid4().hex, body)
+
+
+@app.delete("/api/workflows/{ident}")
+def delete_workflow(ident: str):
+    with closing(connection()) as c, c:
+        c.execute("BEGIN IMMEDIATE")
+        if not c.execute("SELECT 1 FROM objects WHERE kind='workflows' AND id=?", (ident,)).fetchone():
+            raise HTTPException(404, "Сборка не найдена")
+        scheduling.tables(c)
+        c.execute("DELETE FROM schedules WHERE workflow_id=?", (ident,))
+        c.execute("DELETE FROM objects WHERE kind='workflows' AND id=?", (ident,))
+    return {"deleted": ident}
 
 
 @app.put("/api/workflows/{ident}")
@@ -341,6 +409,20 @@ async def test_notification(body: NotificationTest):
 @app.get("/api/runs")
 def runs():
     return sorted(all_of("runs"), key=lambda r: r["started"], reverse=True)
+
+
+@app.delete("/api/runs/{ident}")
+def delete_run(ident: str):
+    with closing(connection()) as c, c:
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT data FROM objects WHERE kind='runs' AND id=?", (ident,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Аудит не найден")
+        run = json.loads(row[0])
+        if run.get("status") == "running":
+            raise HTTPException(409, "Дождитесь завершения аудита")
+        c.execute("DELETE FROM objects WHERE kind='runs' AND id=?", (ident,))
+    return {"deleted": ident}
 
 
 @app.get("/api/runs/{ident}")
@@ -417,6 +499,10 @@ async def execute(run, flow):
                 run["nodes"][ident] = "skipped"
     finally:
         run["finished"] = time.time()
+        save("runs", run)
+        run["email"] = {"status": "sending"}
+        save("runs", run)
+        run["email"] = await asyncio.to_thread(gmail.send, run)
         save("runs", run)
 
 

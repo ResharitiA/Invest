@@ -101,6 +101,7 @@ while (-not (Get-Process -Name namgr -ErrorAction SilentlyContinue)) {
 }
 Write-Host "Agent Manager: running (NSF agent execution is checked separately)"
 
+$backend = $null
 if (-not (Test-Garden)) {
     if ($CheckOnly) { throw "Garden API is not ready." }
     if (Get-NetTCPConnection -State Listen -LocalPort 8000 -ErrorAction SilentlyContinue) {
@@ -122,7 +123,11 @@ if (-not (Test-Garden)) {
 }
 Write-Host "Garden API: OK"
 Write-Host "Panel: $gardenUrl"
-Write-Host "Existing processes were reused. Provider changes require a separate backend restart."
+if ($backend) {
+    Write-Host "Garden backend started with the current launch settings."
+} else {
+    Write-Host "Existing Garden backend reused; new environment settings were not applied. Use start-gmail.ps1 to restart with Gmail settings."
+}
 if ($config.DominoMode -eq "Service" -and -not $NoDominoLog -and -not $CheckOnly) {
     try {
         $viewer = Join-Path $PSScriptRoot "show-domino-log.ps1"

@@ -32,7 +32,7 @@ def configured():
     return bool(os.getenv("LLM_API_KEY") and os.getenv("LLM_MODEL"))
 
 
-async def assess(findings, question="Объясни результаты и предложи порядок исправлений.", history=None):
+async def assess(findings, question="Объясни результаты и предложи порядок исправлений.", history=None, workflow_schema=None):
     if not configured():
         raise ValueError("Задайте LLM_API_KEY и LLM_MODEL в окружении сервера")
     # Raw evidence and source code may contain secrets.
@@ -55,6 +55,20 @@ ID — служебный ключ, не маршрут, не имя файла 
 Ты не изменяешь код и права доступа. Пиши «рекомендую ограничить доступ»,
 а не «ограничил доступ» или «исправил». Не подтверждай исправления без доказательств.
 Старые ответы в переписке могут содержать ошибки; сверяй их с текущими находками."""
+    if workflow_schema is not None:
+        system = """Ты конструктор workflow Garden. По запросу верни только JSON workflow.
+Поля name, nodes, edges. Типы: manual, schedule, repository, secrets, sca, sast,
+merge, if, ai, webhook. У каждой ноды уникальный id, type, x, y, config.
+Связи: source, target, branch (пустая строка или true/false только от if).
+Граф без циклов, все ноды связаны от одного manual или schedule.
+repository читает проект; scanners проверяют исходники; merge объединяет находки;
+ai объясняет результаты; if config.minimum — неотрицательное целое.
+schedule заменяет manual, config: mode=interval, minutes=60, timezone=Europe/Moscow,
+enabled=false; также доступны daily с time=09:00 и cron с cron из пяти полей.
+Webhook только конечный, config.url — публичный HTTP(S), method=POST, timeout=10.
+Не придумывай URL и секреты. Если URL не дан, не добавляй webhook.
+Не включай расписание, не запускай аудит. Располагай ноды слева направо.
+Используй только возможности Garden. Схема JSON: """ + json.dumps(workflow_schema)
     messages = [{"role": "system", "content": system}]
     for entry in (history or [])[-20:]:
         messages.append({"role": "user", "content": entry["question"]})
@@ -75,6 +89,8 @@ ID — служебный ключ, не маршрут, не имя файла 
     if response.status_code != 200:
         raise ValueError(f"AI-провайдер вернул HTTP {response.status_code}")
     try:
+        if workflow_schema is not None:
+            return json.loads(response.json()["choices"][0]["message"]["content"])
         schema = ChatAnswer if history is not None else Assessment
         result = schema.model_validate_json(response.json()["choices"][0]["message"]["content"])
         ids = {f["id"] for f in safe}

@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Depends, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -59,6 +60,7 @@ def tables(c):
     c.execute("CREATE TABLE IF NOT EXISTS schedules (workflow_id TEXT PRIMARY KEY, revision TEXT NOT NULL, config TEXT NOT NULL, next_at REAL)")
     c.execute("CREATE TABLE IF NOT EXISTS dispatches (id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, due REAL NOT NULL, status TEXT NOT NULL, run_id TEXT, error TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS scheduler_meta (id TEXT PRIMARY KEY, value REAL)")
+    c.execute("CREATE TABLE IF NOT EXISTS mail_deliveries (run_id TEXT PRIMARY KEY, status TEXT NOT NULL, updated REAL NOT NULL)")
 
 
 def sync(c, flow, now=None):
@@ -112,6 +114,63 @@ def recover(host):
 
 def install(host):
     app = host.app
+
+    @app.get("/api/domino/mail/pending", dependencies=[Depends(authorize)], response_class=PlainTextResponse)
+    def pending_mail():
+        with closing(host.connection()) as c, c:
+            tables(c)
+            sent = {r[0] for r in c.execute("SELECT run_id FROM mail_deliveries")}
+            runs = [json.loads(r[0]) for r in c.execute("SELECT data FROM objects WHERE kind='runs'")]
+        ids = [r["id"] for r in sorted(runs, key=lambda r: r["started"])
+               if r.get("trigger") == "schedule" and r["status"] in {"success", "failed"} and r["id"] not in sent]
+        return "\n".join(ids[:10])
+
+    @app.get("/api/domino/mail/{ident}/body", dependencies=[Depends(authorize)], response_class=PlainTextResponse)
+    def mail_body(ident: str):
+        run = host.get("runs", ident)
+        if run.get("trigger") != "schedule" or run["status"] not in {"success", "failed"}:
+            raise HTTPException(409, "Report is not ready")
+        counts = {level: sum(f.get("severity") == level for f in run["findings"])
+                  for level in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")}
+        return "\n".join([
+            "Garden security audit",
+            "Run: " + run["id"],
+            "Project: " + run.get("project_name", run["project_id"]),
+            "Workflow: " + run["name"],
+            "Status: " + run["status"],
+            "Findings: " + str(len(run["findings"])),
+            *[level + ": " + str(count) for level, count in counts.items()],
+            "", "Open Garden on the server computer to view finding details.",
+            "http://127.0.0.1:8000",
+        ])
+
+    @app.post("/api/domino/mail/{ident}/claim", dependencies=[Depends(authorize)])
+    def claim_mail(ident: str):
+        mail_body(ident)
+        with closing(host.connection()) as c, c:
+            tables(c)
+            c.execute("BEGIN IMMEDIATE")
+            if c.execute("SELECT 1 FROM mail_deliveries WHERE run_id=?", (ident,)).fetchone():
+                raise HTTPException(409, "Report already claimed; check Domino delivery journal")
+            c.execute("INSERT INTO mail_deliveries VALUES (?,?,?)", (ident, "claimed", time.time()))
+        return {"status": "claimed"}
+
+    @app.post("/api/domino/mail/{ident}/queued", dependencies=[Depends(authorize)])
+    def queued_mail(ident: str):
+        with closing(host.connection()) as c, c:
+            tables(c)
+            changed = c.execute("UPDATE mail_deliveries SET status='queued',updated=? WHERE run_id=?",
+                                (time.time(), ident)).rowcount
+            if not changed:
+                raise HTTPException(409, "Report has not been claimed")
+        return {"status": "queued", "note": "Submitted to Domino, inbox delivery is not confirmed"}
+
+    @app.get("/api/domino/mail", dependencies=[Depends(authorize)])
+    def mail_status():
+        with closing(host.connection()) as c:
+            tables(c)
+            return [dict(run_id=r[0], status=r[1], updated=r[2]) for r in
+                    c.execute("SELECT run_id,status,updated FROM mail_deliveries ORDER BY updated DESC LIMIT 100")]
 
     @app.get("/api/domino/schedules", dependencies=[Depends(authorize)])
     def schedules():

@@ -2,18 +2,97 @@
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Garden Security Workflows</title>
 <style>
 :root{font-family:Inter,system-ui,sans-serif;color:#e8eef8;background:#0b1220}*{box-sizing:border-box}body{margin:0}.app{display:flex;min-height:100vh}.side{width:230px;background:#111b2d;border-right:1px solid #263650;padding:24px 14px}.brand{font-weight:800;font-size:18px;padding:0 12px 28px}.brand span{color:#60a5fa}.nav button{display:block;width:100%;text-align:left;background:none;border:0;color:#91a4be;padding:12px;border-radius:8px;cursor:pointer;font-size:14px}.nav button.active,.nav button:hover{background:#1d2b45;color:#fff}.main{flex:1;padding:28px 36px;max-width:1400px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px}h1{font-size:28px;margin:0 0 6px}h2{font-size:18px;margin:0 0 16px}.muted{color:#8293aa;font-size:13px}.btn{border:0;border-radius:7px;padding:10px 15px;background:#3b82f6;color:#fff;font-weight:650;cursor:pointer}.btn.secondary{background:#22324c}.btn:disabled{opacity:.5}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}.card,.panel{background:#111b2d;border:1px solid #263650;border-radius:10px;padding:18px}.metric{font-size:28px;font-weight:800;margin-top:10px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #263650;padding:12px 0}.badge{font-size:11px;padding:4px 7px;border-radius:99px;background:#263650}.badge.CRITICAL{background:#7f1d1d}.badge.HIGH{background:#9a3412}.badge.MEDIUM{background:#854d0e}.badge.LOW{background:#164e63}.editor{height:560px;background:#0d1728;border:1px solid #263650;border-radius:10px;position:relative;overflow:auto;background-image:linear-gradient(#17243a 1px,transparent 1px),linear-gradient(90deg,#17243a 1px,transparent 1px);background-size:28px 28px}.node{position:absolute;width:170px;background:#182943;border:1px solid #3b82f6;border-radius:8px;padding:12px;cursor:pointer;box-shadow:0 7px 20px #0005}.node small{display:block;color:#8ca2bf;margin-top:6px}.toolbar{display:flex;gap:8px;margin-bottom:14px}.tabs{display:flex;gap:8px;margin-bottom:20px}.tabs button{background:#182943;color:#9db0ca;border:1px solid #263650;padding:8px 12px;border-radius:7px}.tabs button.active{color:#fff;border-color:#3b82f6}.findings{display:grid;gap:10px}.finding{padding:14px;background:#182943;border-radius:8px;border-left:3px solid #f59e0b}.finding code{color:#9db0ca;font-size:12px}.hidden{display:none}@media(max-width:800px){.side{width:68px}.brand{font-size:0}.brand span{font-size:18px}.nav button{font-size:0}.main{padding:20px}.cards,.grid{grid-template-columns:1fr 1fr}}
-</style></head><body><div class="app"><aside class="side"><div class="brand"><span>G</span>arden</div><nav class="nav"><button data-page="dashboard" class="active">▦ &nbsp; Dashboard</button><button data-page="editor">◇ &nbsp; Workflow Editor</button><button data-page="reports">⚠ &nbsp; Security Reports</button><button data-page="history">◷ &nbsp; Executions</button></nav></aside><main class="main">
+:root{color-scheme:dark;--page:#0b1220;--surface:#111b2d;--raised:#182943;--control:#22324c;--border:#526783;--text:#e8eef8;--muted:#9db0ca;--accent:#2563eb;--grid:#17243a}
+:root[data-theme=light]{color-scheme:light;--page:#f3f6fb;--surface:#fff;--raised:#eaf0f8;--control:#dce6f4;--border:#9aaec7;--text:#172b45;--muted:#485e78;--accent:#1d4ed8;--grid:#dde5ef}
+body{background:var(--page);color:var(--text)}
+.side,.card,.panel,.helper-chat{background:var(--surface)!important;border-color:var(--border)!important}
+.node,.finding,.tabs button,.helper-toggle,.helper-message{background:var(--raised)!important;color:var(--text)!important}
+.btn.secondary,.port,.helper-question{background:var(--control)!important;color:var(--text)!important}
+.btn{background:var(--accent)}
+.muted,.nav button,.node small,.finding code,.edge-label{color:var(--muted)!important}
+.nav button.active,.nav button:hover{background:var(--control);color:var(--text)}
+input,select,textarea,#editor select,#editor input,.helper-chat input,.helper-chat select{background:rgba(231,243,255,.8)!important;color:#203b59!important;border:1px solid rgba(176,204,232,.85)!important;border-radius:9px;padding:9px 11px;box-shadow:inset 0 1px 0 #ffffff80;transition:border-color .18s,box-shadow .18s}
+input::placeholder,textarea::placeholder{color:#617b96;opacity:1}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #91b7f2;outline-offset:2px;box-shadow:0 0 0 4px #8db8ef22}
+select option{background:#e7f3ff;color:#203b59}
+input[type=checkbox]{accent-color:#648fd1}
+input[type=file]::file-selector-button{background:#cfE3f9;color:#203b59;border:1px solid #aac5e3;border-radius:6px;padding:6px 10px;margin-right:10px}
+:root[data-theme] .btn.secondary{background:rgba(206,226,247,.8)!important;color:#244362!important;border:1px solid #b2cce580;box-shadow:inset 0 1px 0 #ffffff66}
+:root[data-theme] .btn.secondary:hover{background:rgba(230,242,255,.94)!important}
+:root[data-theme] .nav button.active,:root[data-theme] .nav button:hover{background:rgba(147,184,230,.22);color:#e9f3ff!important}
+:root[data-theme=light] .nav button.active,:root[data-theme=light] .nav button:hover{color:#244362!important}
+:root[data-theme] .helper-message:not(.helper-question) strong{background:#496d96}
+
+.editor{background-color:var(--page);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px)}
+.row{border-color:var(--border)}#editorNotice{color:var(--muted)!important}
+.helper-message strong{color:var(--accent)!important}.edge-label{fill:var(--text)}
+#themeToggle{margin:0 0 18px;width:100%}
+:root[data-theme=dark]{--page:#06110c;--surface:#0b1e15;--raised:#123123;--control:#1a3d2b;--border:#426752;--text:#e8f6ec;--muted:#adcab7;--accent:#167444;--grid:#111c15}
+:root[data-theme=dark] body{background:radial-gradient(ellipse at 15% 0%,#18553266,transparent 55%),radial-gradient(ellipse at 100% 25%,#9b263033,transparent 48%),radial-gradient(ellipse at 60% 100%,#29578033,transparent 55%),var(--page)}
+:root[data-theme=dark] .panel,:root[data-theme=dark] .card{background:linear-gradient(125deg,#123324eb,#0b1e15f5 60%,#421c2544)!important}
+:root[data-theme=dark] .btn:not(.secondary){background:linear-gradient(115deg,#426ea5,#576eaa 65%,#79689f);box-shadow:inset 0 1px 0 #ffffff25,0 4px 12px #162b4922}
+:root[data-theme=dark]{--raised:#253d57;--control:#34506f;--accent:#739ed4;--border:#7793b0;--muted:#bdcede}
+:root[data-theme=dark] .brand span{color:#acd0ff}
+:root[data-theme=dark] .node{border-color:#49aa70;background:linear-gradient(140deg,#163e2b,#101e16)!important}
+:root[data-theme=dark] .brand span{color:#73df9a}
+:root[data-theme=dark] .edge.selected{stroke:#73df9a}
+.editor{background-color:#000;background-image:linear-gradient(#141414 1px,transparent 1px),linear-gradient(90deg,#141414 1px,transparent 1px)}
+:root .editor .node{background:linear-gradient(135deg,#f1f2f3,#e2e5e8)!important;color:#1b304b!important;border-color:#aab4be;box-shadow:0 7px 22px #0005}
+:root .editor .node small{color:#405b78!important}
+:root .editor .node .port{background:#e0ecfa!important;color:#203e63!important;border-color:#86a9d1}
+:root .helper-message.helper-question{border:1px solid #b78aff;background:linear-gradient(135deg,#422466,#302044)!important;color:#fff!important}
+:root .helper-message.helper-question strong{color:#fff!important}
+@keyframes gardenGradient{0%,100%{background-position:0% 20%,100% 35%,40% 100%}50%{background-position:90% 70%,10% 80%,70% 0%}}
+:root[data-theme=dark] body{background-size:180% 180%,190% 190%,200% 200%;background-attachment:fixed;animation:gardenGradient 40s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){:root[data-theme=dark] body{animation:none}}
+.helper-chat header{background:linear-gradient(115deg,#244e42,#31304f);padding:12px;border-radius:10px;align-items:center;gap:10px}
+.helper-chat header b,.helper-toggle span{color:#fff!important}
+.helper-chat header button{background:#ffffff18;color:#fff;border:1px solid #ffffff40;border-radius:6px;padding:4px 9px}
+.helper-output{background:var(--page);border:1px solid var(--border);border-radius:10px;padding:10px}
+:root .helper-message:not(.helper-question){background:var(--raised)!important;border:1px solid var(--border);border-left:3px solid #75bda8;margin-right:16px}
+:root .helper-message:not(.helper-question) strong{color:#fff!important;background:#30594e;padding:4px 8px;border-radius:5px;width:fit-content}
+.helper-chat form{border-top:1px solid var(--border);padding-top:10px;margin-top:10px}
+.helper-chat form .btn{width:100%}
+:root[data-theme=dark] body{background-image:linear-gradient(120deg,#102f28,#26304a,#422b43,#49362b,#203d34);background-size:300% 300%;animation:gardenColors 45s ease-in-out infinite}
+:root[data-theme=light] body{background-image:linear-gradient(120deg,#e5f1e9,#e4ecfa,#f2e4f2,#f5e8dd,#e0f0ed);background-size:300% 300%;animation:gardenColors 45s ease-in-out infinite}
+@keyframes gardenColors{0%,100%{background-position:0% 40%}50%{background-position:100% 60%}}
+@media(prefers-reduced-motion:reduce){:root body{animation:none!important}}
+:root .editor .node .port{width:14px;height:14px;padding:0;border-radius:50%;background:#ffda43!important;border:2px solid #fff1a3;box-shadow:0 0 0 1px #9c741c,0 0 8px #ffd43b55}
+:root .editor .node .port.in{left:-7px}
+:root .editor .node .port.out{right:-7px}
+.socket-more{width:20px;height:20px;padding:0;border:0;background:transparent;color:#617d98;cursor:pointer;font-size:18px}
+.node-tools{display:flex;align-items:center;gap:6px;align-self:flex-end;margin-left:12px}
+#editor .node-tools select{font-size:14px;padding:8px;max-width:190px}
+.node-tools .btn{font-size:14px;padding:9px 13px}
+@media(max-width:700px){.node-tools{margin-left:0}#newSaveForm{min-width:160px!important}}
+:root[data-theme] .side{background:transparent!important;border-color:#ffffff24!important}
+:root[data-theme] .panel,:root[data-theme] .card,:root[data-theme] .helper-chat{background:rgba(218,237,252,.62)!important;color:#132b44;border-color:rgba(221,240,255,.55)!important;backdrop-filter:blur(28px) saturate(120%);-webkit-backdrop-filter:blur(28px) saturate(120%);box-shadow:inset 0 1px 0 #ffffff55,0 10px 30px #00000018}
+:root[data-theme] .panel .muted,:root[data-theme] .card .muted,:root[data-theme] .helper-chat .muted{color:#4d6580!important}
+:root[data-theme] .helper-toggle{background:rgba(218,237,252,.62)!important;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-color:#a9c8e0!important}
+:root[data-theme] .helper-chat{max-height:calc(100dvh - 220px);overflow:auto;background:rgba(218,237,252,.62)!important}
+:root[data-theme] .helper-chat header{background:rgba(58,92,126,.8);cursor:grab}
+:root[data-theme] .helper-output{background:rgba(239,247,255,.55);color:#1b304b;border-color:#9bbbd4}
+:root[data-theme] .helper-message:not(.helper-question){background:rgba(244,249,255,.78)!important;color:#1b304b!important}
+:root[data-theme] .helper-toggle span{color:#243f60!important}
+:root[data-theme] #creatorForm textarea{background:rgba(244,249,255,.85)!important;color:#1b304b!important}
+</style><script>
+(function(){let theme=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';try{theme=localStorage.getItem('garden-theme')||theme}catch(e){}document.documentElement.dataset.theme=theme==='light'?'light':'dark'})()
+</script></head><body><div class="app"><aside class="side"><div class="brand"><span>G</span>arden</div><nav class="nav"><button data-page="dashboard" class="active">▦ &nbsp; Dashboard</button><button data-page="editor">◇ &nbsp; Workflow Editor</button><button data-page="reports">⚠ &nbsp; Security Reports</button><button data-page="history">◷ &nbsp; Executions</button></nav></aside><main class="main">
 <section id="dashboard"><div class="top"><div><h1>Security overview</h1><div class="muted">Контроль безопасности учебного Kotlin-проекта</div></div><button class="btn" onclick="runWorkflow()">Run audit</button></div><div class="cards"><div class="card"><div class="muted">Всего находок</div><div class="metric" id="total">—</div></div><div class="card"><div class="muted">Critical / High</div><div class="metric" id="risk">—</div></div><div class="card"><div class="muted">Запусков</div><div class="metric" id="runs">—</div></div><div class="card"><div class="muted">Статус</div><div class="metric" id="state">Ready</div></div></div><div class="grid"><div class="panel"><h2>Последние запуски</h2><div id="recent" class="muted">Загрузка…</div></div><div class="panel"><h2>Покрытие анализаторов</h2><div class="row"><span>Secrets Scanner</span><span class="badge">CUSTOM</span></div><div class="row"><span>SCA Scanner</span><span class="badge">LOCAL DB</span></div><div class="row"><span>SAST Scanner</span><span class="badge">KOTLIN</span></div></div></div></section>
 <section id="editor" class="hidden"><div class="top"><div><h1>Workflow Editor</h1><div class="muted">Full Security Audit · drag nodes in the canvas</div></div><button class="btn" onclick="runWorkflow()">Run workflow</button></div><div class="toolbar"><button class="btn secondary" onclick="addNode('if')">+ IF</button><button class="btn secondary" onclick="addNode('ai')">+ AI Analysis</button><button class="btn secondary" onclick="saveWorkflow()">Save workflow</button></div><div id="canvas" class="editor"></div></section>
-<section id="reports" class="hidden"><div class="top"><div><h1>Security Reports</h1><div class="muted">Единый JSON-контракт SECRET · SCA · SAST</div></div><button class="btn secondary" onclick="downloadReport()">Download JSON</button></div><div class="panel"><div class="tabs"><button class="active" onclick="filterFindings('all',this)">All</button><button onclick="filterFindings('SECRET',this)">SECRET</button><button onclick="filterFindings('SCA',this)">SCA</button><button onclick="filterFindings('SAST',this)">SAST</button></div><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px"><label for="severityFilter">Критичность</label><select id="severityFilter" onchange="renderFindings()" style="background:#182943;color:#e8eef8;border:1px solid #526783;border-radius:7px;padding:8px"><option value="all">Все уровни</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option><option value="INFO">Info</option></select><span id="findingCount" class="muted" role="status"></span></div><div id="findings" class="findings">Запустите workflow.</div></div></section>
+<section id="reports" class="hidden"><div class="top"><div><h1>Security Reports</h1><div class="muted">Единый JSON-контракт SECRET · SCA · SAST</div></div><button class="btn secondary" onclick="downloadReport()">Download JSON</button></div><div class="panel"><div class="tabs"><button class="active" onclick="filterFindings('all',this)">All</button><button onclick="filterFindings('SECRET',this)">SECRET</button><button onclick="filterFindings('SCA',this)">SCA</button><button onclick="filterFindings('SAST',this)">SAST</button></div><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px"><label for="reportAudit">Аудит</label><select id="reportAudit" onchange="selectReportAudit()" style="max-width:100%;background:#182943;color:#e8eef8;border:1px solid #526783;border-radius:7px;padding:8px"><option value="">Нет аудитов</option></select><span id="reportNotice" class="muted" role="status"></span><label for="severityFilter">Критичность</label><select id="severityFilter" onchange="renderFindings()" style="background:#182943;color:#e8eef8;border:1px solid #526783;border-radius:7px;padding:8px"><option value="all">Все уровни</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option><option value="INFO">Info</option></select><span id="findingCount" class="muted" role="status"></span></div><div id="findings" class="findings">Запустите workflow.</div></div></section>
 <section id="history" class="hidden"><div class="top"><div><h1>Execution history</h1><div class="muted">Сохранённые запуски и события выполнения</div></div></div><div class="panel" id="historyList">Загрузка…</div></section>
 </main></div><script>
 let workflow,latest={findings:[]},currentFilter='all';
 const $=s=>document.querySelector(s);
-async function api(url,opt){const r=await fetch(url,opt);if(!r.ok)throw Error(await r.text());return r.json()}
-function show(page){document.querySelectorAll('main section').forEach(x=>x.classList.toggle('hidden',x.id!==page));document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.page===page));if(page==='reports')renderFindings();if(page==='history')loadHistory()}
+const themeToggle=document.createElement('button');themeToggle.id='themeToggle';themeToggle.className='btn secondary';
+function updateThemeToggle(){themeToggle.textContent=document.documentElement.dataset.theme==='light'?'Тёмная тема':'Светлая тема'}
+themeToggle.onclick=()=>{const theme=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=theme;try{localStorage.setItem('garden-theme',theme)}catch(e){}updateThemeToggle()};
+updateThemeToggle();$('.brand').after(themeToggle);
+async function api(url,opt){const r=await fetch(url,opt);if(!r.ok){if(r.status===405&&opt?.method==='DELETE')throw Error('Запущен старый backend без удаления. Перезапустите .\\start-gmail.ps1 и обновите страницу Ctrl+F5.');let detail;try{detail=(await r.json()).detail}catch(e){}throw Error(typeof detail==='string'?detail:'Ошибка сервера: HTTP '+r.status)}return r.json()}
+function show(page){document.querySelectorAll('main section').forEach(x=>x.classList.toggle('hidden',x.id!==page));document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.page===page));if(page==='reports')refreshReportAudits().catch(e=>{$('#reportNotice').textContent=e.message});if(page==='history')loadHistory()}
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page));
-async function load(){try{[workflow]=await api('/api/workflows');renderCanvas();setupProjects();await refreshProjects();loadHistory();await updateMetrics()}catch(e){alert(e.message)}}
+async function load(){try{[workflow]=await api('/api/workflows');workflow??={name:'Новая сборка',project_id:'',nodes:[{id:'manual',type:'manual',x:60,y:160,config:{}}],edges:[]};renderCanvas();setupProjects();await refreshProjects();loadHistory();await updateMetrics()}catch(e){alert(e.message)}}
 let projectList=[];
 function setupProjects(){
  const nav=document.createElement('button');nav.dataset.page='projects';nav.textContent='Projects';nav.onclick=()=>{show('projects');refreshProjects().catch(e=>projectNotice(e.message))};$('.nav').append(nav);
@@ -21,7 +100,7 @@ function setupProjects(){
  section.innerHTML='<div class="top"><div><h1>Projects</h1><p class="muted">Собственные и разрешённые учебные исходники. Код не выполняется.</p></div></div><form id="projectForm" class="toolbar"><input id="projectName" aria-label="Название проекта" maxlength="120" placeholder="Название проекта" required><button class="btn">Создать проект</button></form><p class="muted">Загрузка заменяет исходники проекта целиком. ZIP: до 10 МБ, до 1000 элементов, до 30 МБ распакованных данных; файл до 1 МБ. Можно загрузить один исходный файл UTF-8. Для набора файлов используйте ZIP.</p><p id="projectNotice" role="status"></p><div id="projectList" class="panel"></div>';
  $('main').append(section);
  const label=document.createElement('label');label.textContent='Проект ';
- const select=document.createElement('select');select.id='projectSelect';select.setAttribute('aria-label','Проект workflow');label.append(select);$('#editor .toolbar').prepend(label);
+ const select=document.createElement('select');select.id='projectSelect';select.setAttribute('aria-label','Проект workflow');label.append(select);const projectGroup=document.createElement('div');projectGroup.style.cssText='display:flex;flex-direction:column;gap:10px';const savedGroup=$('#savedWorkflows').closest('div');projectGroup.append(label,savedGroup);$('#editor .toolbar').prepend(projectGroup);
  select.onchange=async()=>{
   if(executing)return;workflow.project_id=select.value;latest={findings:[]};changed();renderFindings();
   try{await updateMetrics()}catch(e){editorMessage(e.message)}
@@ -34,6 +113,12 @@ function setupProjects(){
    $('#projectName').value='';await refreshProjects();projectNotice('Проект создан: '+project.name+'. Загрузите исходники.');
   }catch(error){projectNotice(error.message)}finally{button.disabled=false}
  };
+}
+function trashButton(label){
+ const button=document.createElement('button');button.className='btn secondary';button.title=label;button.setAttribute('aria-label',label);
+ button.style.cssText='color:#ef4444!important;display:inline-flex;align-items:center;justify-content:center;padding:8px;border:1px solid #ef444466';
+ button.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg>';
+ return button;
 }
 function projectNotice(text){$('#projectNotice').textContent=text}
 async function refreshProjects(){
@@ -57,7 +142,18 @@ async function refreshProjects(){
   };
   const choose=document.createElement('button');choose.className='btn secondary';choose.textContent='В редактор';choose.disabled=executing;
   choose.onclick=()=>{workflow.project_id=p.id;select.value=p.id;latest={findings:[]};changed();show('editor');updateMetrics().catch(e=>editorMessage(e.message))};
-  row.append(description,file,choose);list.append(row);
+  const remove=trashButton('Удалить проект');remove.disabled=executing;
+  remove.onclick=async()=>{
+   if(executing||!confirm('Удалить проект «'+p.name+'», загруженные исходники, его сборки и расписания? История аудитов останется.'))return;
+   remove.disabled=true;
+   try{
+    await api('/api/projects/'+encodeURIComponent(p.id),{method:'DELETE'});
+    const flows=await api('/api/workflows');
+    if(workflow.project_id===p.id){workflow=flows[0]||{name:'Новая сборка',project_id:'',nodes:[{id:'manual',type:'manual',x:60,y:160,config:{}}],edges:[]};selection=null;nodeStates={};latest={findings:[]};renderCanvas();renderSettings()}
+    await refreshProjects();await refreshBuilds();projectNotice('Проект удалён');
+   }catch(e){projectNotice(e.message);remove.disabled=false}
+  };
+  row.append(description,file,choose,remove);list.append(row);
  }
 }
 const nodeNames={schedule:'Schedule Trigger',manual:'Manual Trigger',repository:'Repository Input',secrets:'Secrets Scanner',sca:'SCA Scanner',sast:'SAST Scanner',merge:'Merge Results',if:'IF / ELSE',ai:'AI Analysis',webhook:'HTTP Webhook'};
@@ -88,10 +184,44 @@ function setupEditor(){
  for(const [type,name] of Object.entries(nodeNames)){const o=document.createElement('option');o.value=type;o.textContent=name;types.append(o)}
  toolbar.append(types);
  const action=(label,fn)=>{const b=document.createElement('button');b.className='btn secondary';b.textContent=label;b.onclick=fn;toolbar.append(b);return b};
- action('Добавить ноду',()=>addNode(types.value));
- action('Сохранить',()=>saveWorkflow().catch(e=>editorMessage(e.message)));
- action('−',()=>zoomAt(view.zoom/1.2));action('+',()=>zoomAt(view.zoom*1.2));action('Сброс вида',()=>{view={x:30,y:30,zoom:1};applyView()});
- const zoom=document.createElement('span');zoom.id='zoomValue';toolbar.append(zoom);
+ const addButton=action('Добавить ноду',()=>addNode(types.value));const nodeTools=document.createElement('div');nodeTools.className='node-tools';toolbar.append(nodeTools);nodeTools.append(types,addButton);
+ const zoom=document.createElement('span');zoom.id='zoomValue';zoom.hidden=true;toolbar.append(zoom);
+ const builds=document.createElement('select');builds.id='savedWorkflows';builds.setAttribute('aria-label','Сохранённые сборки');toolbar.append(builds);
+ builds.onchange=async()=>{const id=builds.value;if(executing||!id){builds.value=workflow.id||'';return}if($('#editorNotice').textContent==='Есть несохранённые изменения'&&!confirm('Открыть сборку? Несохранённые изменения будут потеряны.')){builds.value=workflow.id||'';return}builds.disabled=true;try{const list=await api('/api/workflows');const next=list.find(f=>f.id===id);if(!next)throw Error('Сборка больше не существует');workflow=next;selection=null;nodeStates={};latest={findings:[]};$('#projectSelect').value=workflow.project_id;renderCanvas();renderSettings();builds.value=id;editorMessage('Сборка открыта: '+workflow.name)}catch(e){editorMessage(e.message);builds.value=workflow.id||''}finally{builds.disabled=false}};
+ action('Сохранить как новую',async()=>{if(executing)return;try{await saveWorkflow(true)}catch(e){editorMessage(e.message)}});
+ action('Удалить сохранение',async()=>{
+  if(executing)return;
+  const id=builds.value;
+  if(!id){editorMessage('Выберите сохранённую сборку для удаления');return}
+  const title=builds.selectedOptions[0].textContent;
+  if(!confirm('Удалить сохранённую сборку «'+title+'» и её расписание? История аудитов останется.'))return;
+  try{
+   await api('/api/workflows/'+encodeURIComponent(id),{method:'DELETE'});
+   if(workflow.id===id){workflow=structuredClone(workflow);delete workflow.id;for(const n of workflow.nodes){if(n.type==='schedule')n.config.enabled=false;if(n.type==='webhook')n.config.clear_credentials=true}renderSettings()}
+   await refreshBuilds();editorMessage('Сохранение удалено. Открытая схема остаётся черновиком.');
+  }catch(e){editorMessage(e.message)}
+ });
+ const savedGroup=document.createElement('div');savedGroup.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+ const savedButtons=[...toolbar.querySelectorAll('button')].filter(b=>['Сохранить как новую','Удалить сохранение'].includes(b.textContent));
+ toolbar.prepend(savedGroup);
+ const trash=savedButtons.find(b=>b.textContent==='Удалить сохранение');
+ trash.setAttribute('aria-label','Удалить выбранную сборку');trash.title='Удалить выбранную сборку';
+ trash.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg>';
+ trash.style.cssText='color:#ef4444!important;display:inline-flex;align-items:center;justify-content:center;padding:8px;border:1px solid #ef444466';
+ const buildsLabel=document.createElement('label');buildsLabel.textContent='Выбор сохранения ';buildsLabel.append(builds);
+ const saveCurrent=document.createElement('button');saveCurrent.className='btn secondary';saveCurrent.textContent='Сохранить';saveCurrent.onclick=async()=>{if(executing)return;if(!workflow.id){editorMessage('Для новой сборки введите имя справа и нажмите «Сохранить как новую»');$('#newSaveName').focus();return}saveCurrent.disabled=true;try{await saveWorkflow()}catch(e){editorMessage(e.message)}finally{saveCurrent.disabled=false}};
+ savedGroup.append(buildsLabel,saveCurrent,trash);
+ const newSave=document.createElement('form');newSave.id='newSaveForm';newSave.style.cssText='margin-left:auto;display:flex;flex-direction:column;gap:8px;min-width:210px';
+ const saveName=document.createElement('input');saveName.id='newSaveName';saveName.maxLength=120;saveName.required=true;saveName.setAttribute('aria-label','Имя нового сохранения');saveName.autocomplete='off';
+ const newButton=savedButtons.find(b=>b!==trash);newButton.onclick=null;newButton.type='submit';
+ newSave.append(saveName,newButton);toolbar.append(newSave);
+ newSave.onsubmit=async e=>{e.preventDefault();if(executing)return;const title=saveName.value.trim();if(!title){saveName.focus();return}newButton.disabled=true;const previousName=workflow.name;try{workflow.name=title;await saveWorkflow(true);saveName.value=''}catch(error){workflow.name=previousName;editorMessage(error.message)}finally{newButton.disabled=false}};
+
+ const creator=document.createElement('div');creator.className='panel';creator.style.marginBottom='14px';
+ creator.innerHTML='<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><canvas id="creatorModel" width="140" height="140" aria-label="3D помощник конструктора"></canvas><form id="creatorForm" style="flex:1;min-width:220px"><label for="creatorPrompt">Создать сборку с AI</label><textarea id="creatorPrompt" maxlength="4000" required placeholder="Например: проверка секретов, SCA и SAST, затем объединение и AI-анализ" style="display:block;width:100%;min-height:70px;margin:8px 0;background:#182943;color:white;padding:10px"></textarea><button class="btn">Создать черновик</button><span id="creatorStatus" role="status" style="margin-left:10px"></span></form></div>';
+ toolbar.after(creator);
+ $('#creatorForm').onsubmit=async e=>{e.preventDefault();if(executing)return;const button=e.target.querySelector('button'),status=$('#creatorStatus');button.disabled=true;status.textContent='Создаю схему…';const original=workflow,project=workflow.project_id;try{const draft=await api('/api/workflows/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:$('#creatorPrompt').value,project_id:project})});if(executing||workflow!==original){status.textContent='Редактор изменился. Повторите запрос.';return}if(!confirm('Открыть созданный черновик? Текущие несохранённые изменения будут потеряны.')){status.textContent='Черновик не применён';return}workflow=draft;selection=null;nodeStates={};builds.value='';view={x:30,y:30,zoom:.7};renderCanvas();renderSettings();changed();status.textContent='Черновик готов. Проверьте и сохраните сборку.'}catch(error){status.textContent=error.message}finally{button.disabled=false}};
+ refreshBuilds().catch(e=>editorMessage(e.message));
  const notice=document.createElement('div');notice.id='editorNotice';notice.setAttribute('role','status');
  const settings=document.createElement('div');settings.id='nodeSettings';
  const canvas=$('#canvas');canvas.before(notice,settings);canvas.tabIndex=0;canvas.setAttribute('aria-label','Полотно workflow');
@@ -175,10 +305,24 @@ function validateGraph(){
  function visit(id){if(visiting.has(id))throw Error('Соединение создаёт цикл');if(done.has(id))return;visiting.add(id);for(const target of adj.get(id))visit(target);visiting.delete(id);done.add(id)}
  for(const id of ids)visit(id);
 }
-function startWire(event,node,branch,input){
+function socketY(node,branch,input,index=0){return 82+(input?index:node.type==='if'?index*2+(branch==='false'?1:0):index)*24}
+function socketCount(node,input){
+ const stored=Number(node.config[input?'input_sockets':'output_sockets']);
+ const used=Math.max(1,...workflow.edges.filter(e=>input?e.target===node.id:e.source===node.id).map(e=>((input?e.target_port:e.source_port)||0)+1));
+ return Math.min(20,Math.max(used,Number.isInteger(stored)?stored:1));
+}
+function updateEdgePositions(){
+ document.querySelectorAll('#links path[data-index]').forEach(path=>{
+  const e=workflow.edges[Number(path.dataset.index)],a=workflow.nodes.find(n=>n.id===e.source),b=workflow.nodes.find(n=>n.id===e.target);
+  const x=a.x+170,y=a.y+socketY(a,e.branch,false,e.source_port||0),tx=b.x,ty=b.y+socketY(b,'',true,e.target_port||0),bend=Math.max(50,Math.abs(tx-x)/2);
+  path.setAttribute('d',`M ${x} ${y} C ${x+bend} ${y}, ${tx-bend} ${ty}, ${tx} ${ty}`);
+  const label=document.querySelector('#links text[data-index="'+path.dataset.index+'"]');if(label){label.setAttribute('x',x+12);label.setAttribute('y',y-9)}
+ });
+}
+function startWire(event,node,branch,input,portIndex=0){
  if(executing||event.button!==0)return;
  event.preventDefault();event.stopPropagation();
- const original=input?workflow.edges.filter(e=>e.target===node.id).at(-1):null;
+ const original=input?workflow.edges.filter(e=>e.target===node.id&&(e.target_port||0)===portIndex).at(-1):null;
  if(input&&!original)return;
  const source=original?original.source:node.id,outputBranch=original?original.branch:branch;
  const sourceNode=workflow.nodes.find(n=>n.id===source);
@@ -190,7 +334,7 @@ function startWire(event,node,branch,input){
  if(oldPath)oldPath.style.visibility='hidden';
  const draw=e=>{
   const rect=$('#canvas').getBoundingClientRect();
-  const x=sourceNode.x+170,y=sourceNode.y+(outputBranch==='false'?85:50);
+  const x=sourceNode.x+170,y=sourceNode.y+socketY(sourceNode,outputBranch,false,original?(original.source_port||0):portIndex);
   const tx=(e.clientX-rect.left-view.x)/view.zoom,ty=(e.clientY-rect.top-view.y)/view.zoom;
   const bend=Math.max(50,Math.abs(tx-x)/2);
   preview.setAttribute('d',`M ${x} ${y} C ${x+bend} ${y}, ${tx-bend} ${ty}, ${tx} ${ty}`);
@@ -204,7 +348,7 @@ function startWire(event,node,branch,input){
   if(cancel){preview.remove();if(oldPath)oldPath.style.visibility='';return}
   const before=workflow.edges.slice();
   if(original)workflow.edges.splice(workflow.edges.indexOf(original),1);
-  if(target)workflow.edges.push({source,target:target.dataset.node,branch:outputBranch});
+  if(target)workflow.edges.push({source,target:target.dataset.node,branch:outputBranch,source_port:original?(original.source_port||0):portIndex,target_port:Number(target.dataset.port)||0});
   try{validateGraph();if(original||target)changed();else editorMessage('Соединение отменено')}
   catch(error){workflow.edges=before;editorMessage(error.message)}
   selection=null;renderCanvas();renderSettings();
@@ -226,7 +370,7 @@ function renderCanvas(){
   const path=document.createElementNS(ns,'path');path.setAttribute('d',`M ${x} ${y} C ${x+curve} ${y}, ${tx-curve} ${ty}, ${tx} ${ty}`);
   path.setAttribute('class','edge'+(selection?.kind==='edge'&&selection.index===index?' selected':''));path.dataset.index=index;
   path.onclick=()=>{if(executing)return;selection={kind:'edge',index};connecting=null;renderCanvas();renderSettings();c.focus()};svg.append(path);
-  if(edge.branch){const label=document.createElementNS(ns,'text');label.setAttribute('x',x+12);label.setAttribute('y',y-9);label.setAttribute('class','edge-label');label.textContent=edge.branch;label.style.pointerEvents='none';svg.append(label)}
+  if(edge.branch){const label=document.createElementNS(ns,'text');label.setAttribute('x',x+12);label.setAttribute('y',y-9);label.setAttribute('class','edge-label');label.dataset.index=index;label.textContent=edge.branch;label.style.pointerEvents='none';svg.append(label)}
  });
  workflow.nodes.forEach(n=>{
   const el=document.createElement('div');el.className='node'+(selection?.kind==='node'&&selection.id===n.id?' selected':'');el.dataset.id=n.id;el.dataset.state=nodeStates[n.id]||'idle';el.style.left=n.x+'px';el.style.top=n.y+'px';
@@ -234,17 +378,28 @@ function renderCanvas(){
   const state=document.createElement('small');state.textContent=({idle:'Ожидание',waiting:'В очереди',running:'Выполняется',success:'Готово',failed:'Ошибка',skipped:'Пропущено'})[el.dataset.state]||el.dataset.state;
   el.append(title,state);
   if(n.type==='if'){const condition=document.createElement('small');condition.textContent='Находок ≥ '+(n.config.minimum??1);el.append(condition)}
-  const port=(text,cls,branch,input)=>{const b=document.createElement('button');b.className='port '+cls;b.textContent=text;b.dataset.node=n.id;b.disabled=executing;b.onpointerdown=e=>startWire(e,n,branch,input);b.onclick=e=>e.stopPropagation();el.append(b)};
-  port('Вход','in','',true);
-  for(const branch of n.type==='if'?['true','false']:[''])port(branch||'Выход','out'+(branch==='false'?' false':''),branch,false);
+  const inputs=socketCount(n,true),outputs=socketCount(n,false),branches=n.type==='if'?['true','false']:[''];
+  el.style.height=(Math.max(inputs,outputs*branches.length)*24+110)+'px';
+  for(const input of [true,false]){
+   const count=input?inputs:outputs;
+   for(let i=0;i<count;i++)for(const branch of input?['']:branches){
+    const b=document.createElement('button');b.className='port '+(input?'in':'out');b.dataset.node=n.id;b.dataset.port=i;b.style.top=(socketY(n,branch,input,i)-7)+'px';b.title=(input?'Вход':'Выход')+' '+(i+1)+(branch?' · '+branch:'');b.setAttribute('aria-label',b.title);b.disabled=executing;
+    b.onpointerdown=e=>startWire(e,n,branch,input,i);b.onclick=e=>e.stopPropagation();el.append(b);
+   }
+  }
+  for(const input of [true,false]){
+   const count=input?inputs:outputs;
+   const more=document.createElement('button');more.className='socket-more';more.textContent='▾';more.style.cssText='position:absolute;width:28px;height:28px;font-size:26px;'+(input?'left:-14px;':'right:-14px;')+'top:'+(82+count*(input?1:branches.length)*24)+'px';more.title=input?'Добавить вход':'Добавить выход';more.setAttribute('aria-label',more.title);more.disabled=executing||count>=20;
+   more.onpointerdown=e=>e.stopPropagation();more.onclick=e=>{e.stopPropagation();n.config[input?'input_sockets':'output_sockets']=count+1;changed();renderCanvas()};el.append(more);
+  }
   el.onpointerdown=e=>{
    if(e.button!==0||executing)return;e.stopPropagation();selection={kind:'node',id:n.id};renderSettings();c.focus();
    c.querySelectorAll('.node').forEach(v=>v.classList.toggle('selected',v.dataset.id===n.id));
    const start={x:e.clientX,y:e.clientY,nx:n.x,ny:n.y};el.setPointerCapture(e.pointerId);let moved=false;
-   el.onpointermove=ev=>{const dx=(ev.clientX-start.x)/view.zoom,dy=(ev.clientY-start.y)/view.zoom;if(Math.abs(dx)+Math.abs(dy)<2&&!moved)return;moved=true;n.x=start.nx+dx;n.y=start.ny+dy;el.style.left=n.x+'px';el.style.top=n.y+'px'};
+   el.onpointermove=ev=>{const dx=(ev.clientX-start.x)/view.zoom,dy=(ev.clientY-start.y)/view.zoom;if(Math.abs(dx)+Math.abs(dy)<2&&!moved)return;moved=true;n.x=start.nx+dx;n.y=start.ny+dy;el.style.left=n.x+'px';el.style.top=n.y+'px';updateEdgePositions()};
    el.onpointerup=el.onpointercancel=()=>{el.onpointermove=null;if(moved){changed();renderCanvas()}};
   };world.append(el);
- });applyView();
+ });updateEdgePositions();applyView();
 }
 async function runWorkflow(){
  if(!workflow||executing)return;
@@ -274,8 +429,23 @@ async function updateMetrics(){
  for(const r of rs.slice(0,4)){const row=document.createElement('div');row.className='row';row.textContent=(r.project_name||'Учебный проект')+' · '+r.name+' · '+r.status;recent.append(row)}
  if(!rs.length)recent.textContent='Нет запусков выбранного проекта';
 }
-function visibleFindings(){const severity=$('#severityFilter').value;return latest.findings.filter(f=>(currentFilter==='all'||f.category===currentFilter)&&(severity==='all'||f.severity===severity))}
+let reportAudits=[],reportAuditId='';
+function reportFindings(){return reportAudits.find(r=>r.id===reportAuditId)?.findings||[]}
+function selectReportAudit(){reportAuditId=$('#reportAudit').value;renderFindings()}
+async function refreshReportAudits(){
+ reportAudits=(await api('/api/runs')).sort((a,b)=>b.started-a.started);
+ if(!reportAudits.some(r=>r.id===reportAuditId))reportAuditId=reportAudits[0]?.id||'';
+ const select=$('#reportAudit');select.replaceChildren();
+ for(const run of reportAudits){const option=document.createElement('option');option.value=run.id;option.textContent=new Date(run.started*1000).toLocaleString()+' · '+(run.project_name||'Проект')+' · '+run.name+' · '+run.status;select.append(option)}
+ if(!reportAudits.length){const option=document.createElement('option');option.value='';option.textContent='Нет аудитов';select.append(option)}
+ select.value=reportAuditId;select.disabled=!reportAudits.length;
+ $('#reports .top button').disabled=!reportAuditId;
+ $('#reportNotice').textContent=reportAudits.length?'':'Сначала запустите аудит.';
+ renderFindings();
+}
+function visibleFindings(){const severity=$('#severityFilter').value;return reportFindings().filter(f=>(currentFilter==='all'||f.category===currentFilter)&&(severity==='all'||f.severity===severity))}
 function renderFindings(){
+ const latest={findings:reportFindings()};
  const fs=visibleFindings(),container=$('#findings');container.replaceChildren();
  $('#findingCount').textContent='Показано '+fs.length+' из '+latest.findings.length;
  for(const f of fs){
@@ -294,17 +464,33 @@ function filterFindings(f,b){currentFilter=f;document.querySelectorAll('.tabs bu
 async function loadHistory(){
  const rs=await api('/api/runs'),list=$('#historyList');list.replaceChildren();
  for(const r of rs){
-  const row=document.createElement('div');row.className='row';row.textContent=new Date(r.started*1000).toLocaleString()+' · '+r.name+' · '+r.status+' · '+(r.findings?.length||0)+' findings';list.append(row);
+  const row=document.createElement('div');row.className='row';row.textContent=new Date(r.started*1000).toLocaleString()+' · '+r.name+' · '+r.status+' · '+(r.findings?.length||0)+' findings';
+  const remove=trashButton('Удалить аудит');remove.disabled=r.status==='running';
+  remove.onclick=async()=>{
+   if(!confirm('Удалить аудит «'+r.name+'» от '+new Date(r.started*1000).toLocaleString()+' вместе с его отчётом?'))return;
+   remove.disabled=true;
+   try{await api('/api/runs/'+encodeURIComponent(r.id),{method:'DELETE'});await loadHistory();await refreshReportAudits();await updateMetrics()}
+   catch(e){alert(e.message);remove.disabled=r.status==='running'}
+  };
+  row.append(remove);list.append(row);
   for(const [id,d] of Object.entries(r.notifications||{})){const detail=document.createElement('p');detail.textContent='Webhook '+id+': '+d.status+' · HTTP '+(d.http_status??'—')+' · '+d.duration_ms+' мс'+(d.error?' · '+d.error:'');list.append(detail)}
  }
  if(!rs.length)list.textContent='Нет запусков';
 }
-async function saveWorkflow(){
+async function refreshBuilds(){
+ const list=await api('/api/workflows'),select=$('#savedWorkflows');select.replaceChildren();
+ const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent='Сохранённые сборки';select.append(placeholder);
+ for(const flow of list){const option=document.createElement('option');option.value=flow.id;option.textContent=flow.name;select.append(option)}
+ select.value=workflow.id||'';
+}
+async function saveWorkflow(asNew=false){
  const headers=$('#nodeSettings textarea');if(headers&&!headers.reportValidity())throw Error('Исправьте JSON заголовков');
  validateGraph();
- const saved=await api('/api/workflows/'+workflow.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(workflow)});
- workflow=saved;renderSettings();
- editorMessage('Workflow сохранён');
+ if(asNew&&workflow.nodes.some(n=>n.config.has_credentials))throw Error('Для копии Webhook заново укажите credentials или очистите их.');
+ const creating=asNew||!workflow.id;
+ const saved=await api(creating?'/api/workflows':'/api/workflows/'+workflow.id,{method:creating?'POST':'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(workflow)});
+ workflow=saved;renderSettings();await refreshBuilds();
+ editorMessage('Сборка сохранена: '+workflow.name);
 }
 function addNode(type){
  if(executing||!workflow)return;
@@ -313,6 +499,23 @@ function addNode(type){
  workflow.nodes.push({id,type,x:(c.clientWidth/2-view.x)/view.zoom-85,y:(c.clientHeight/2-view.y)/view.zoom-55,config:type==='if'?{minimum:1}:{}});
  selection={kind:'node',id};changed();renderCanvas();renderSettings();
 }
-function downloadReport(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({findings:latest.findings},null,2)],{type:'application/json'}));a.download='security-report.json';a.click()}
-load();
+function downloadReport(){if(!reportAuditId)return;const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({findings:reportFindings()},null,2)],{type:'application/json'}));a.download='security-report-'+reportAuditId+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+async function creatorModel(){
+ try{
+  const THREE=await import('https://esm.sh/three@0.170.0');
+  const {OBJLoader}=await import('https://esm.sh/three@0.170.0/examples/jsm/loaders/OBJLoader.js');
+  const {MTLLoader}=await import('https://esm.sh/three@0.170.0/examples/jsm/loaders/MTLLoader.js');
+  const canvas=$('#creatorModel'),renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true});
+  renderer.setSize(140,140,false);renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(35,1,.01,100);
+  scene.add(new THREE.HemisphereLight(0xffffff,0x486080,3));
+  const light=new THREE.DirectionalLight(0xffffff,4);light.position.set(3,4,5);scene.add(light);
+  const materials=await new MTLLoader().setPath('/assets/creator/').loadAsync('I_mast_help_zap.mtl.mtl');materials.preload();
+  const object=await new OBJLoader().setMaterials(materials).loadAsync('/assets/creator/I_mast_help_zap.mtl.obj');
+  const box=new THREE.Box3().setFromObject(object),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3()),scale=2/Math.max(size.x,size.y,size.z);
+  object.scale.setScalar(scale);object.position.copy(center).multiplyScalar(-scale);scene.add(object);camera.position.z=4.5;
+  renderer.setAnimationLoop(()=>{if(!$('#editor').classList.contains('hidden'))renderer.render(scene,camera)});
+ }catch(e){const canvas=$('#creatorModel');if(canvas)canvas.hidden=true;console.warn('Creator model:',e)}
+}
+load().then(creatorModel);
 </script><script type="module" src="/assets/helper.js"></script></body></html>
