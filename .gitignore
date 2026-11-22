@@ -1,0 +1,16 @@
+.claude/
+.codex/
+.venv/
+__pycache__/
+*.pyc
+garden.sqlite3
+garden.sqlite3-*
+.env
+/domino/
+*.nsf
+*.ntf
+*.id
+notes.ini
+*.exe
+/garden-panel.log
+*.token

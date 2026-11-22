@@ -1,0 +1,20 @@
+Option Public
+Option Declare
+
+Sub Initialize
+    On Error GoTo Failed
+    Dim session As New NotesSession
+    Dim request As NotesHTTPRequest
+    Dim response As Variant
+    Dim status As String
+    Set request = session.CreateHTTPRequest()
+    request.PreferStrings = True
+    request.TimeoutSec = 15
+    response = request.Get("http://127.0.0.1:8000/api/nodes")
+    status = CStr(request.ResponseCode)
+    Print "GardenConnectionTest HTTP: " & status
+    Print CStr(response)
+    Exit Sub
+Failed:
+    Print "GardenConnectionTest failed, LotusScript error: " & CStr(Err)
+End Sub
